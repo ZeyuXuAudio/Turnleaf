@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.test-dist/
+*.vsix
+.DS_Store
+.overleaf-ce/
+.claude/
+test/reference/
+releases/
+.turnleaf/

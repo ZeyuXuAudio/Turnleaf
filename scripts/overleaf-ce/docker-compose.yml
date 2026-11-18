@@ -1,0 +1,64 @@
+# Throwaway Overleaf Community Edition for `npm run test:ce` (scripts/ce.mjs).
+# Adapted from the repository-root docker-compose.yml of github.com/overleaf/overleaf and
+# the toolkit's config seed (MongoDB 8.0, Redis 7.4). Pinned on 2026-10-21 to CE 6.3.1, the
+# newest stable release (2026-10-15); see CONTRIBUTING.md. The image is amd64-only.
+#
+# Never add an environment variable whose name contains SHARELATEX: CE 5+ refuses to start.
+# scripts/ce.mjs supplies OVERLEAF_CE_DATA, OVERLEAF_CE_PORT, OVERLEAF_CE_SITE_URL and the
+# generated OVERLEAF_CE_INVITE_SECRET; the data directory is git-ignored (.overleaf-ce/).
+name: turnleaf-ce
+
+services:
+  sharelatex:
+    image: sharelatex/sharelatex:6.3.1
+    platform: linux/amd64
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    ports:
+      # Loopback only: the test account and its session must not be reachable from the network.
+      - "127.0.0.1:${OVERLEAF_CE_PORT:-8090}:80"
+    stop_grace_period: 60s
+    volumes:
+      - ${OVERLEAF_CE_DATA:?set by scripts/ce.mjs}/overleaf:/var/lib/overleaf
+    environment:
+      OVERLEAF_APP_NAME: Turnleaf CE test
+      OVERLEAF_SITE_URL: ${OVERLEAF_CE_SITE_URL:-http://localhost:8090}
+      OVERLEAF_MONGO_URL: mongodb://mongo/sharelatex
+      # Same setting, read under two names by different services.
+      OVERLEAF_REDIS_HOST: redis
+      REDIS_HOST: redis
+      # Required since CE 6.2.0; generated per instance by scripts/ce.mjs.
+      OVERLEAF_INVITE_TOKEN_SECRET: ${OVERLEAF_CE_INVITE_SECRET:?set by scripts/ce.mjs}
+      # CE names its session cookie overleaf.sid; the extension sends only overleaf_session2,
+      # the overleaf.com name. Web and real-time both read COOKIE_NAME.
+      COOKIE_NAME: overleaf_session2
+      EMAIL_CONFIRMATION_DISABLED: "true"
+      ENABLED_LINKED_FILE_TYPES: project_file,project_output_file
+      ENABLE_CONVERSIONS: "true"
+      # OVERLEAF_SECURE_COOKIE stays unset: any value marks the cookie Secure, which a
+      # plain-HTTP localhost server cannot use.
+
+  mongo:
+    image: mongo:8.0
+    command: "--replSet overleaf"
+    environment:
+      MONGO_INITDB_DATABASE: sharelatex
+    volumes:
+      - ${OVERLEAF_CE_DATA:?set by scripts/ce.mjs}/mongo:/data/db
+      - ./mongodb-init-replica-set.js:/docker-entrypoint-initdb.d/mongodb-init-replica-set.js:ro
+    # The replica-set member is named mongo:27017, which must resolve inside this container too.
+    extra_hosts:
+      - mongo:127.0.0.1
+    healthcheck:
+      test: echo 'db.stats().ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 10s
+      retries: 10
+
+  redis:
+    image: redis:7.4
+    volumes:
+      - ${OVERLEAF_CE_DATA:?set by scripts/ce.mjs}/redis:/data

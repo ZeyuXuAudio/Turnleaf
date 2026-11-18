@@ -1,0 +1,14 @@
+{
+  "fonts": [{
+    "id": "overleaf-comment-outline",
+    "src": [{ "path": "./comment-outline.woff", "format": "woff" }],
+    "weight": "normal",
+    "style": "normal"
+  }],
+  "iconDefinitions": {
+    "comment-unresolved": { "fontCharacter": "\\e001" },
+    "comment": { "fontCharacter": "\\e001" },
+    "comment-add": { "fontCharacter": "\\e002" },
+    "comment-draft": { "fontCharacter": "\\e003" }
+  }
+}

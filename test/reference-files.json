@@ -1,0 +1,332 @@
+{
+  "repository": "https://github.com/overleaf/overleaf",
+  "commit": "e039ad26c5bf5422eb57b89fc7e57c75055e631d",
+  "license": "AGPL-3.0 (the repository license, LICENSE); @overleaf/o-error is MIT",
+  "files": [
+    {
+      "path": "DiffCodec.cjs",
+      "source": "services/document-updater/app/js/DiffCodec.js",
+      "sha256": "be70117acd48d54de44479f1eef58bdca091f055361d1f33abe466cce6adb2a1"
+    },
+    {
+      "path": "LICENSE",
+      "source": "LICENSE",
+      "sha256": "57c8ff33c9c0cfc3ef00e650a1cc910d7ee479a8bc509f6c9209a7c2a11399d6"
+    },
+    {
+      "path": "editor-core/index.js",
+      "source": "libraries/overleaf-editor-core/index.js",
+      "sha256": "d7ca7236eded36684d2e5dae3f0f2e7791e3395da8d39fd8c0348f5aa34b842b"
+    },
+    {
+      "path": "editor-core/lib/author.js",
+      "source": "libraries/overleaf-editor-core/lib/author.js",
+      "sha256": "f136e2d9639bfc9bae9ea3904a854ba83158e67f273689097da2a9a1e9506213"
+    },
+    {
+      "path": "editor-core/lib/author_list.js",
+      "source": "libraries/overleaf-editor-core/lib/author_list.js",
+      "sha256": "3760b289907045b0f8c5f86772ddbf2e0222f4d94119dda116f9221898701e0e"
+    },
+    {
+      "path": "editor-core/lib/blob.js",
+      "source": "libraries/overleaf-editor-core/lib/blob.js",
+      "sha256": "c82778e0a1f547db10d5f8cd2c9c9768be4608ba52158c362206845ac0d6ad70"
+    },
+    {
+      "path": "editor-core/lib/blob_store_base.js",
+      "source": "libraries/overleaf-editor-core/lib/blob_store_base.js",
+      "sha256": "3f287f7f3eeea138386f1bf424003b46f577545606aa96e09d955a62f1b0b1a4"
+    },
+    {
+      "path": "editor-core/lib/change.js",
+      "source": "libraries/overleaf-editor-core/lib/change.js",
+      "sha256": "0c056074fdb7a3f1da1cd31d63ed05f3fb876a57ceb62265549ca25e22141d77"
+    },
+    {
+      "path": "editor-core/lib/change_identity.js",
+      "source": "libraries/overleaf-editor-core/lib/change_identity.js",
+      "sha256": "704fcc28b872001f31bcc73b13ac10a3899932479aab7ea1746afdf404d2011d"
+    },
+    {
+      "path": "editor-core/lib/change_note.js",
+      "source": "libraries/overleaf-editor-core/lib/change_note.js",
+      "sha256": "fb55b8fee3c16baba7817c711c383dca080b98c003d0c6fc13e324885501546c"
+    },
+    {
+      "path": "editor-core/lib/change_request.js",
+      "source": "libraries/overleaf-editor-core/lib/change_request.js",
+      "sha256": "f9a79736f51df8d5c0d70de31762d7b4c74dccac80f744a4fb5310af2dbeb684"
+    },
+    {
+      "path": "editor-core/lib/chunk.js",
+      "source": "libraries/overleaf-editor-core/lib/chunk.js",
+      "sha256": "0f5e7566a43b9bb329b569ceeaf882ae2ac6b8517897fcfbaf79b9c168d1866e"
+    },
+    {
+      "path": "editor-core/lib/chunk_response.js",
+      "source": "libraries/overleaf-editor-core/lib/chunk_response.js",
+      "sha256": "3ba7aa2b7de80bdf13753982dadfce0a66c0aad1581e86d1798dcc8d782bc45c"
+    },
+    {
+      "path": "editor-core/lib/comment.js",
+      "source": "libraries/overleaf-editor-core/lib/comment.js",
+      "sha256": "5c0c608a5c75d36ce7ada7168ba3fee6b59118372704b389932f5aecb06bbf95"
+    },
+    {
+      "path": "editor-core/lib/diff_as_text_operation.js",
+      "source": "libraries/overleaf-editor-core/lib/diff_as_text_operation.js",
+      "sha256": "bc5d280f948c55bd92ae441bf0b890a9a4416351723a79160f3d509fd2642330"
+    },
+    {
+      "path": "editor-core/lib/doc_updater_compatible_ranges.js",
+      "source": "libraries/overleaf-editor-core/lib/doc_updater_compatible_ranges.js",
+      "sha256": "dc03d2e7c0b6f51a8324a3998ff12f996b4621d368f1e0cdaba8e5c81e4874d0"
+    },
+    {
+      "path": "editor-core/lib/errors.js",
+      "source": "libraries/overleaf-editor-core/lib/errors.js",
+      "sha256": "1bc841ea9578ae5362ec3c3f7dd8e8ba0727d69ed0d4d2a1d860f75acb4ca0fb"
+    },
+    {
+      "path": "editor-core/lib/file.js",
+      "source": "libraries/overleaf-editor-core/lib/file.js",
+      "sha256": "067e384ef660566d5a82c3c9a180a65ba3ad072643feedd3be31c73124f6f1a5"
+    },
+    {
+      "path": "editor-core/lib/file_data/binary_file_data.js",
+      "source": "libraries/overleaf-editor-core/lib/file_data/binary_file_data.js",
+      "sha256": "f2adc9cc6697b9cef52001e87c2989275629d38b7715ff3f3597cacf1243dbc7"
+    },
+    {
+      "path": "editor-core/lib/file_data/clear_tracking_props.js",
+      "source": "libraries/overleaf-editor-core/lib/file_data/clear_tracking_props.js",
+      "sha256": "be731f9425a3ffc513a8552be776ea478f3271c7500075ef575651c8468d55e3"
+    },
+    {
+      "path": "editor-core/lib/file_data/comment_list.js",
+      "source": "libraries/overleaf-editor-core/lib/file_data/comment_list.js",
+      "sha256": "144aaa5f6e5c6d36ef3262769814699d8fb8f7a9aabca7cc4af41aebed3d896f"
+    },
+    {
+      "path": "editor-core/lib/file_data/hash_file_data.js",
+      "source": "libraries/overleaf-editor-core/lib/file_data/hash_file_data.js",
+      "sha256": "00da45e616b8937763d611a7f040e810c6dce249b286591521ac0083d41f72a7"
+    },
+    {
+      "path": "editor-core/lib/file_data/hollow_binary_file_data.js",
+      "source": "libraries/overleaf-editor-core/lib/file_data/hollow_binary_file_data.js",
+      "sha256": "3d42513c7f933efad69e98ec895b14eea3e313c049369054ef647a367529aa69"
+    },
+    {
+      "path": "editor-core/lib/file_data/hollow_string_file_data.js",
+      "source": "libraries/overleaf-editor-core/lib/file_data/hollow_string_file_data.js",
+      "sha256": "5fe57bae6edd2f1e798819bea69e31bb4cd5f6c823027e17400eabc48e260be2"
+    },
+    {
+      "path": "editor-core/lib/file_data/index.js",
+      "source": "libraries/overleaf-editor-core/lib/file_data/index.js",
+      "sha256": "389e5d79314154cd6de821ea372d0d20ae7634ea6c4ae0675137a7db907562ba"
+    },
+    {
+      "path": "editor-core/lib/file_data/lazy_string_file_data.js",
+      "source": "libraries/overleaf-editor-core/lib/file_data/lazy_string_file_data.js",
+      "sha256": "fa5243fb7297cf0a5deda25fc1c22089a136c4f2ad10a43d0f51005aa26a733e"
+    },
+    {
+      "path": "editor-core/lib/file_data/string_file_data.js",
+      "source": "libraries/overleaf-editor-core/lib/file_data/string_file_data.js",
+      "sha256": "fbcf1a490a7e9068dc05f56be5792c4b758ab6bdc4a5a02bb0d7715eec5baf23"
+    },
+    {
+      "path": "editor-core/lib/file_data/tracked_change.js",
+      "source": "libraries/overleaf-editor-core/lib/file_data/tracked_change.js",
+      "sha256": "455e5e3782da72a7137f7e9f48729c7eca0adf59b6e6032698c54a03ff5d0b79"
+    },
+    {
+      "path": "editor-core/lib/file_data/tracked_change_list.js",
+      "source": "libraries/overleaf-editor-core/lib/file_data/tracked_change_list.js",
+      "sha256": "464bb4a70bde28ccc3e57ec2d647032a71d3bbbaf2d5b25a560ac8bcc38a8757"
+    },
+    {
+      "path": "editor-core/lib/file_data/tracking_props.js",
+      "source": "libraries/overleaf-editor-core/lib/file_data/tracking_props.js",
+      "sha256": "e059768298ad1afa991b6474e108872cae5138e473256663eccfab0a72f907a6"
+    },
+    {
+      "path": "editor-core/lib/file_map.js",
+      "source": "libraries/overleaf-editor-core/lib/file_map.js",
+      "sha256": "f80a7a4fa7917aee01cf245fc0d741cf3f8e1db1785bf2cbfc4a50ba0884fa8f"
+    },
+    {
+      "path": "editor-core/lib/file_metadata.js",
+      "source": "libraries/overleaf-editor-core/lib/file_metadata.js",
+      "sha256": "839d3f05ea53e9a7b9cab26aec4f67c86ca9d59c2be115037155e0eee8c4d5bd"
+    },
+    {
+      "path": "editor-core/lib/history.js",
+      "source": "libraries/overleaf-editor-core/lib/history.js",
+      "sha256": "bbd09076d3063fd53e5027b68c0e3dc3d60559203b1ff0b3124a552c8fd88fb2"
+    },
+    {
+      "path": "editor-core/lib/label.js",
+      "source": "libraries/overleaf-editor-core/lib/label.js",
+      "sha256": "e6b3143158df153e1a004722d2b99f800da8edd1c4f0690ee40adb6a41fbb576"
+    },
+    {
+      "path": "editor-core/lib/operation/add_comment_operation.js",
+      "source": "libraries/overleaf-editor-core/lib/operation/add_comment_operation.js",
+      "sha256": "dc89425cdd5d5d2d48b2a364d104cd66bc856e51ffbe580254ff053911a6e531"
+    },
+    {
+      "path": "editor-core/lib/operation/add_file_operation.js",
+      "source": "libraries/overleaf-editor-core/lib/operation/add_file_operation.js",
+      "sha256": "efa935d7833f0a0637c9d41f78ec52f3db34319e22a45088cb075e6f74811596"
+    },
+    {
+      "path": "editor-core/lib/operation/delete_comment_operation.js",
+      "source": "libraries/overleaf-editor-core/lib/operation/delete_comment_operation.js",
+      "sha256": "b4711a6eed96216ef36da5fc5432034420b8a78af18900734e23894ae039928b"
+    },
+    {
+      "path": "editor-core/lib/operation/edit_file_operation.js",
+      "source": "libraries/overleaf-editor-core/lib/operation/edit_file_operation.js",
+      "sha256": "c6635c61b7389290ecfe2cbcc41e2d343b7e20c55db843dc3d091657ff9058c3"
+    },
+    {
+      "path": "editor-core/lib/operation/edit_no_operation.js",
+      "source": "libraries/overleaf-editor-core/lib/operation/edit_no_operation.js",
+      "sha256": "a07efb45dd21ec777415196c54c570791224f63773ec22a7db6acb1426ba75a1"
+    },
+    {
+      "path": "editor-core/lib/operation/edit_operation.js",
+      "source": "libraries/overleaf-editor-core/lib/operation/edit_operation.js",
+      "sha256": "d2089f81e2961e2255ce909c49d84f4755b98d86680c7ab36f3f99957800a942"
+    },
+    {
+      "path": "editor-core/lib/operation/edit_operation_builder.js",
+      "source": "libraries/overleaf-editor-core/lib/operation/edit_operation_builder.js",
+      "sha256": "c6e43d4c6de73f84eddd38d445c5e87e378f2e449b1009162c92d3c558854396"
+    },
+    {
+      "path": "editor-core/lib/operation/edit_operation_transformer.js",
+      "source": "libraries/overleaf-editor-core/lib/operation/edit_operation_transformer.js",
+      "sha256": "3b94356fcd630ff9d5e922b161045f46baee6cd259ba0654ce58dbae0d0977f9"
+    },
+    {
+      "path": "editor-core/lib/operation/index.js",
+      "source": "libraries/overleaf-editor-core/lib/operation/index.js",
+      "sha256": "c500f9500e80bf1e329e69c3c529270ad5fb580980f7733784680d3a403f10b0"
+    },
+    {
+      "path": "editor-core/lib/operation/move_file_operation.js",
+      "source": "libraries/overleaf-editor-core/lib/operation/move_file_operation.js",
+      "sha256": "2a6ac1f0c993126e7fab1b856903e66f5b191a776993b46515105fa394df75a3"
+    },
+    {
+      "path": "editor-core/lib/operation/no_operation.js",
+      "source": "libraries/overleaf-editor-core/lib/operation/no_operation.js",
+      "sha256": "79b5a452d409dba13cc2a855bf3cba498ca4df1fa0f5bdea8e9babcb12a0393d"
+    },
+    {
+      "path": "editor-core/lib/operation/scan_op.js",
+      "source": "libraries/overleaf-editor-core/lib/operation/scan_op.js",
+      "sha256": "5e54a4a7773d5802ce31bd53a41b1905dec172ded2428abbdf12afe8c81745b0"
+    },
+    {
+      "path": "editor-core/lib/operation/set_comment_state_operation.js",
+      "source": "libraries/overleaf-editor-core/lib/operation/set_comment_state_operation.js",
+      "sha256": "29c564d29e9aa7739b343fabab3eeb6b042cbbc200e77d96645525d255f354c2"
+    },
+    {
+      "path": "editor-core/lib/operation/set_file_metadata_operation.js",
+      "source": "libraries/overleaf-editor-core/lib/operation/set_file_metadata_operation.js",
+      "sha256": "f70416ef2eb0fd6d61a408b6e075660126d7303ff254e06b97584ad74d107a61"
+    },
+    {
+      "path": "editor-core/lib/operation/text_operation.js",
+      "source": "libraries/overleaf-editor-core/lib/operation/text_operation.js",
+      "sha256": "6b25d32a086903c920ac48f38a85d50e17f2a9e11c18b998aa6ee70baf20278c"
+    },
+    {
+      "path": "editor-core/lib/origin/index.js",
+      "source": "libraries/overleaf-editor-core/lib/origin/index.js",
+      "sha256": "d922256c9bde78cff0cec613798bd4c72619c055732ac025ab878b1e6ac4cfc7"
+    },
+    {
+      "path": "editor-core/lib/origin/restore_file_origin.js",
+      "source": "libraries/overleaf-editor-core/lib/origin/restore_file_origin.js",
+      "sha256": "c02761de21d59c330f04e1eb8bbea9a9314ab11d8e2232da3434f08985e2542f"
+    },
+    {
+      "path": "editor-core/lib/origin/restore_origin.js",
+      "source": "libraries/overleaf-editor-core/lib/origin/restore_origin.js",
+      "sha256": "a2e0c6fa9bfd189862e9bd832585fc68d7901291aac5c1fc77a24ced80877d56"
+    },
+    {
+      "path": "editor-core/lib/origin/restore_project_origin.js",
+      "source": "libraries/overleaf-editor-core/lib/origin/restore_project_origin.js",
+      "sha256": "72d60d0146e880e2ae93fe433952debacddff5641ede78af0773f8c8e8c09fb4"
+    },
+    {
+      "path": "editor-core/lib/ot_client.js",
+      "source": "libraries/overleaf-editor-core/lib/ot_client.js",
+      "sha256": "433d8d911c70ab35da56a74705f1cc5b960a3188741cbcb81ff02abc1e2ccc3c"
+    },
+    {
+      "path": "editor-core/lib/ot_migration_stages.js",
+      "source": "libraries/overleaf-editor-core/lib/ot_migration_stages.js",
+      "sha256": "11d4c2c5a242e34dcea8083ba446f2997497c0e0d119592eae1d118db758751c"
+    },
+    {
+      "path": "editor-core/lib/range.js",
+      "source": "libraries/overleaf-editor-core/lib/range.js",
+      "sha256": "d8554dc18f328a306a209b06ba16a7776d6f3262f6f8f7c90f924a9d45fd3474"
+    },
+    {
+      "path": "editor-core/lib/rebase.js",
+      "source": "libraries/overleaf-editor-core/lib/rebase.js",
+      "sha256": "9e1727d628211acd9921c08cb8c5806088174f246edd0d06ae9403a73ab63742"
+    },
+    {
+      "path": "editor-core/lib/root_doc.js",
+      "source": "libraries/overleaf-editor-core/lib/root_doc.js",
+      "sha256": "3482740feac3bc0526ccac1d1b32ee70135e8af170072e45cb2d1fb3ac1eb0eb"
+    },
+    {
+      "path": "editor-core/lib/safe_pathname.js",
+      "source": "libraries/overleaf-editor-core/lib/safe_pathname.js",
+      "sha256": "d54502ff77eedaf8900b0164069241b59865a38a9f7893fe7399f9fbbe7d3fdc"
+    },
+    {
+      "path": "editor-core/lib/snapshot.js",
+      "source": "libraries/overleaf-editor-core/lib/snapshot.js",
+      "sha256": "76de9dc81a93ffa3a4788eb57cec0220427e98cb2b20f58093fddb700eac120a"
+    },
+    {
+      "path": "editor-core/lib/text_file_defaults.js",
+      "source": "libraries/overleaf-editor-core/lib/text_file_defaults.js",
+      "sha256": "8656f44781fcd0918b8804403aff70d00e52dcbcf337224e14b8ae88b014322b"
+    },
+    {
+      "path": "editor-core/lib/util.js",
+      "source": "libraries/overleaf-editor-core/lib/util.js",
+      "sha256": "1caea62233068af6ccdd62cf125f9427d252902b84520a29ed407ec7f57dc167"
+    },
+    {
+      "path": "editor-core/lib/v2_doc_versions.js",
+      "source": "libraries/overleaf-editor-core/lib/v2_doc_versions.js",
+      "sha256": "712a9c4974eba61636eb58135919fc7e83151aacb86b1496bcbd4217e400531e"
+    },
+    {
+      "path": "node_modules/@overleaf/o-error/index.cjs",
+      "source": "libraries/o-error/index.cjs",
+      "sha256": "2a11ffadb46c1534a873b76881b17416f0618c47761c630c65f7e7cbe5f1507a"
+    },
+    {
+      "path": "ranges-tracker.cjs",
+      "source": "libraries/ranges-tracker/index.cjs",
+      "sha256": "036cc737c8498abe0e4efddfc97e92b3e2f12d78a7f1c6b06fc162e2dbf25ad2"
+    }
+  ]
+}

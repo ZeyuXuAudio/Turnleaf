@@ -1,0 +1,15 @@
+**/*
+!package.json
+!README.md
+!CHANGELOG.md
+!LICENSE
+!THIRD_PARTY_NOTICES.md
+!dist/extension.js
+!dist/review-worker.js
+!dist/pdf.mjs
+!dist/pdf.worker.mjs
+!media/turnleaf.svg
+!media/brand/turnleaf-icon.png
+!media/walkthrough/*.md
+!media/comment-outline.woff
+!media/turnleaf-product-icon-theme.json

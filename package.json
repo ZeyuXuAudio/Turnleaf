@@ -1,0 +1,909 @@
+{
+  "name": "turnleaf",
+  "displayName": "Turnleaf",
+  "description": "Review Overleaf comments and suggestions in VS Code or Cursor, merge incoming edits, and send reviewed changes back to Overleaf.",
+  "version": "0.10.0",
+  "publisher": "zeyuxu",
+  "icon": "media/brand/turnleaf-icon.png",
+  "galleryBanner": {
+    "color": "#12355B",
+    "theme": "dark"
+  },
+  "private": true,
+  "engines": {
+    "vscode": "^1.85.2"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "overleaf",
+    "latex",
+    "tex",
+    "comments",
+    "review",
+    "track changes",
+    "sync"
+  ],
+  "main": "./dist/extension.js",
+  "extensionKind": [
+    "workspace"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false
+    },
+    "virtualWorkspaces": {
+      "supported": false
+    }
+  },
+  "activationEvents": [
+    "onCommand:turnleaf.signIn",
+    "onCommand:turnleaf.signInWithCookie",
+    "onCommand:turnleaf.linkProject",
+    "onCommand:turnleaf.inspectProject",
+    "onCommand:turnleaf.signOut",
+    "onCommand:turnleaf.openInspectedFile",
+    "onCommand:turnleaf.refreshComments",
+    "onCommand:turnleaf.pull",
+    "onCommand:turnleaf.markReconciled",
+    "onCommand:turnleaf.push",
+    "onCommand:turnleaf.pushDryRun",
+    "onCommand:turnleaf.exportReviewLog",
+    "onCommand:turnleaf.filterThreadsByAuthor",
+    "onCommand:turnleaf.openThread",
+    "onCommand:turnleaf.markAddressed",
+    "onCommand:turnleaf.markDeclined",
+    "onCommand:turnleaf.markOpen",
+    "onCommand:turnleaf.reply",
+    "onCommand:turnleaf.resolve",
+    "onCommand:turnleaf.reopen",
+    "onCommand:turnleaf.showReviewPanel",
+    "onCommand:turnleaf.exportReviewPdf",
+    "onStartupFinished",
+    "onCommand:turnleaf.verifySnapshotLink",
+    "onCommand:turnleaf.configureFiles",
+    "onView:turnleaf.project"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "turnleaf.openWalkthrough",
+        "title": "Open Getting Started",
+        "category": "Turnleaf"
+      },
+      {
+        "command": "turnleaf.signIn",
+        "title": "Sign In with Browser",
+        "category": "Turnleaf"
+      },
+      {
+        "command": "turnleaf.signInWithCookie",
+        "title": "Sign In with Session Cookie",
+        "category": "Turnleaf"
+      },
+      {
+        "command": "turnleaf.linkProject",
+        "title": "Link Project",
+        "category": "Turnleaf"
+      },
+      {
+        "command": "turnleaf.inspectProject",
+        "title": "Inspect Project (Read Only)",
+        "category": "Turnleaf"
+      },
+      {
+        "command": "turnleaf.signOut",
+        "title": "Sign Out",
+        "category": "Turnleaf"
+      },
+      {
+        "command": "turnleaf.openInspectedFile",
+        "title": "Open Inspected File",
+        "category": "Turnleaf"
+      },
+      {
+        "command": "turnleaf.refreshComments",
+        "title": "Refresh Comments",
+        "category": "Turnleaf",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "turnleaf.pull",
+        "title": "Get Latest (Preview)",
+        "category": "Turnleaf"
+      },
+      {
+        "command": "turnleaf.push",
+        "title": "Show Outgoing Summary and Send",
+        "category": "Turnleaf"
+      },
+      {
+        "command": "turnleaf.pushDryRun",
+        "title": "Review Saved Files",
+        "category": "Turnleaf"
+      },
+      {
+        "command": "turnleaf.exportReviewLog",
+        "title": "Export Review Log",
+        "category": "Turnleaf"
+      },
+      {
+        "command": "turnleaf.openReviewFiles",
+        "title": "Open Local Review Files",
+        "category": "Turnleaf"
+      },
+      {
+        "command": "turnleaf.filterThreadsByAuthor",
+        "title": "Filter Threads by Author",
+        "category": "Turnleaf"
+      },
+      {
+        "command": "turnleaf.openThread",
+        "title": "Open Thread",
+        "category": "Turnleaf"
+      },
+      {
+        "command": "turnleaf.markAddressed",
+        "title": "Mark Addressed Locally",
+        "category": "Turnleaf"
+      },
+      {
+        "command": "turnleaf.markDeclined",
+        "title": "Mark Declined Locally",
+        "category": "Turnleaf"
+      },
+      {
+        "command": "turnleaf.markOpen",
+        "title": "Reopen Locally",
+        "category": "Turnleaf"
+      },
+      {
+        "command": "turnleaf.reply",
+        "title": "Reply",
+        "category": "Turnleaf"
+      },
+      {
+        "command": "turnleaf.resolve",
+        "title": "Resolve Thread on Send",
+        "category": "Turnleaf",
+        "icon": "$(check)"
+      },
+      {
+        "command": "turnleaf.reopen",
+        "title": "Reopen Thread on Send",
+        "category": "Turnleaf",
+        "icon": "$(issue-reopened)"
+      },
+      {
+        "command": "turnleaf.showReviewPanel",
+        "title": "Open Larger View",
+        "category": "Turnleaf",
+        "icon": "$(open-preview)"
+      },
+      {
+        "command": "turnleaf.exportReviewPdf",
+        "title": "Export Annotated Review PDF",
+        "category": "Turnleaf"
+      },
+      {
+        "command": "turnleaf.configureFiles",
+        "title": "Choose Source Files",
+        "category": "Turnleaf"
+      },
+      {
+        "command": "turnleaf.showOverview",
+        "title": "Open Project Overview",
+        "category": "Turnleaf",
+        "icon": "$(book)"
+      },
+      {
+        "command": "turnleaf.sendReviewed",
+        "title": "Send Listed Changes",
+        "category": "Turnleaf"
+      },
+      {
+        "command": "turnleaf.applyReviewed",
+        "title": "Apply Reviewed Updates",
+        "category": "Turnleaf"
+      },
+      {
+        "command": "turnleaf.openPreviewDiff",
+        "title": "Open Change Diff",
+        "category": "Turnleaf"
+      },
+      {
+        "command": "turnleaf.cancelPreview",
+        "title": "Close Change Preview",
+        "category": "Turnleaf"
+      },
+      {
+        "command": "turnleaf.resolveConflict",
+        "title": "Resolve Preview Conflict",
+        "category": "Turnleaf"
+      },
+      {
+        "command": "turnleaf.useResolution",
+        "title": "Use Saved Merge Resolution",
+        "category": "Turnleaf"
+      },
+      {
+        "command": "turnleaf.reviewDetails",
+        "title": "Show Review Details",
+        "category": "Turnleaf"
+      },
+      {
+        "command": "turnleaf.recoverLocalApply",
+        "title": "Recover Local Apply",
+        "category": "Turnleaf"
+      },
+      {
+        "command": "turnleaf.checkRemote",
+        "title": "Check Remote Now",
+        "category": "Turnleaf",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "turnleaf.enableWrites",
+        "title": "Toggle Sending for This Project",
+        "category": "Turnleaf"
+      },
+      {
+        "command": "turnleaf.openOverleaf",
+        "title": "Open Project on Overleaf",
+        "category": "Turnleaf"
+      },
+      {
+        "command": "turnleaf.setCheckInterval",
+        "title": "Set Remote Check Interval",
+        "category": "Turnleaf"
+      },
+      {
+        "command": "turnleaf.setSendCheck",
+        "title": "Set Send Check (Full or Fast)",
+        "category": "Turnleaf"
+      },
+      {
+        "command": "turnleaf.toggleComments",
+        "title": "Toggle All Comments",
+        "category": "Turnleaf"
+      },
+      {
+        "command": "turnleaf.editComment",
+        "title": "Edit Comment",
+        "category": "Turnleaf",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "turnleaf.cancelCommentEdit",
+        "title": "Cancel",
+        "category": "Turnleaf",
+        "icon": "$(close)"
+      },
+      {
+        "command": "turnleaf.saveComment",
+        "title": "Save Draft",
+        "category": "Turnleaf",
+        "icon": "$(check)"
+      },
+      {
+        "command": "turnleaf.deleteComment",
+        "title": "Delete Comment on Send",
+        "category": "Turnleaf",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "turnleaf.editMessage",
+        "title": "Edit My Comment",
+        "category": "Turnleaf",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "turnleaf.deleteMessage",
+        "title": "Delete My Comment on Send",
+        "category": "Turnleaf",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "turnleaf.acceptAllChanges",
+        "title": "Accept All Suggestions in File on Send",
+        "category": "Turnleaf"
+      },
+      {
+        "command": "turnleaf.rejectAllChanges",
+        "title": "Reject All Suggestions in File on Send",
+        "category": "Turnleaf"
+      },
+      {
+        "command": "turnleaf.deleteThread",
+        "title": "Delete Thread on Send",
+        "category": "Turnleaf",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "turnleaf.toggleHighlights",
+        "title": "Toggle Comment Highlights",
+        "category": "Turnleaf"
+      },
+      {
+        "command": "turnleaf.toggleOutlineMarkers",
+        "title": "Toggle Outline Comment Markers",
+        "category": "Turnleaf"
+      },
+      {
+        "command": "turnleaf.newComment",
+        "title": "New Comment on Selection",
+        "category": "Turnleaf",
+        "icon": "$(comment)"
+      },
+      {
+        "command": "turnleaf.showSyncHistory",
+        "title": "Open Sync History",
+        "category": "Turnleaf",
+        "icon": "$(history)"
+      },
+      {
+        "command": "turnleaf.clearHistory",
+        "title": "Clear Older Sync History",
+        "category": "Turnleaf"
+      },
+      {
+        "command": "turnleaf.reattachDraft",
+        "title": "Update Pending Comment Selection",
+        "category": "Turnleaf"
+      }
+    ],
+    "configuration": [
+      {
+        "title": "Turnleaf",
+        "properties": {
+          "turnleaf.baseUrl": {
+            "type": "string",
+            "default": "https://www.overleaf.com",
+            "scope": "resource",
+            "description": "Overleaf server address."
+          },
+          "turnleaf.browserPath": {
+            "type": "string",
+            "default": "",
+            "scope": "machine",
+            "description": "Chromium-based browser (Chrome, Edge, Brave or Chromium) used for Sign In with Browser. Leave empty to detect one."
+          },
+          "turnleaf.projectId": {
+            "type": "string",
+            "default": "",
+            "scope": "resource",
+            "description": "Linked Overleaf project ID."
+          },
+          "turnleaf.trackedFiles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": [],
+            "scope": "resource",
+            "description": "Project-relative source files to review and synchronize. Set by Choose files; nothing is synchronized until files are chosen."
+          },
+          "turnleaf.reviewLogPath": {
+            "type": "string",
+            "default": "docs/overleaf_review_log.md",
+            "scope": "resource",
+            "description": "Generated review log path. Export overwrites this file."
+          },
+          "turnleaf.historyLimit": {
+            "type": "number",
+            "default": 50,
+            "minimum": 0,
+            "scope": "resource",
+            "description": "Finished sync-history records to keep. 0 keeps all. Records an interrupted sync still needs are always kept."
+          },
+          "turnleaf.historyDays": {
+            "type": "number",
+            "default": 90,
+            "minimum": 0,
+            "scope": "resource",
+            "description": "Remove finished sync-history records older than this many days. 0 keeps them regardless of age."
+          },
+          "turnleaf.syncPictures": {
+            "type": "boolean",
+            "default": true,
+            "scope": "resource",
+            "description": "Get latest also brings in the PNG, JPG and PDF files of the Overleaf project, compared by content. Off leaves local pictures alone."
+          },
+          "turnleaf.commentMarkers": {
+            "type": "string",
+            "enum": [
+              "belowParagraph",
+              "commentedLine"
+            ],
+            "enumDescriptions": [
+              "On the blank line under the commented line. Without a blank line there, no marker: the highlighted text shows the comment, and hovering it opens the thread.",
+              "On the line where the comment ends, repeated on each wrapped row of that line."
+            ],
+            "default": "belowParagraph",
+            "scope": "resource",
+            "description": "Where comment markers go in the gutter while word wrap is on. Cursor draws a marker on every wrapped row of its line; with word wrap off, markers stay on the commented line."
+          },
+          "turnleaf.localReviewFiles": {
+            "type": "boolean",
+            "default": true,
+            "scope": "resource",
+            "description": "Keep the project's comments as files under .turnleaf/projects/<key>/review/, where AI agents and scripts can read them and queue replies, resolutions and new comments. What they queue is published only by Send. Off imports what was saved there and removes the folder; queued drafts stay."
+          },
+          "turnleaf.allowWrites": {
+            "type": "boolean",
+            "default": false,
+            "scope": "resource",
+            "description": "Allow reviewed uploads and explicit comment actions. Can be changed in Project setup."
+          },
+          "turnleaf.liveUpdates": {
+            "type": "boolean",
+            "default": true,
+            "scope": "resource",
+            "description": "Keep one connection to the linked Overleaf project open and show its edits and comments as they happen. A 60-second check over the same connection catches anything missed. Pauses while the window is in the background."
+          },
+          "turnleaf.sendCheck": {
+            "type": "string",
+            "enum": [
+              "full",
+              "fast"
+            ],
+            "enumDescriptions": [
+              "Before and after writing, Send reads every selected file from Overleaf.",
+              "With a live connection, Send re-reads only the files Overleaf reported as edited and the files it wrote. Without one, Send reads in full."
+            ],
+            "default": "full",
+            "scope": "resource",
+            "markdownDescription": "How Send checks Overleaf around its writes. **Fast** is quicker on projects with many files, but relies on Overleaf reporting every edit over the live connection: an edit made after Send's first read that it fails to report is not seen before writing, and the check after writing catches it only in a file this Send wrote."
+          },
+          "turnleaf.remoteCheckInterval": {
+            "type": "number",
+            "enum": [
+              0,
+              10,
+              30,
+              60
+            ],
+            "enumDescriptions": [
+              "Only check when requested.",
+              "Every 10 seconds.",
+              "Every 30 seconds.",
+              "Every 60 seconds."
+            ],
+            "default": 10,
+            "scope": "resource",
+            "description": "When live updates are off: how often to check the selected remote files and comments, without applying updates. Checks back off after failures."
+          }
+        }
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "turnleaf.setCheckInterval",
+          "when": "false"
+        },
+        {
+          "command": "turnleaf.pushDryRun",
+          "when": "false"
+        },
+        {
+          "command": "turnleaf.sendReviewed",
+          "when": "false"
+        },
+        {
+          "command": "turnleaf.refreshComments",
+          "when": "false"
+        },
+        {
+          "command": "turnleaf.editComment",
+          "when": "false"
+        },
+        {
+          "command": "turnleaf.cancelCommentEdit",
+          "when": "false"
+        },
+        {
+          "command": "turnleaf.saveComment",
+          "when": "false"
+        },
+        {
+          "command": "turnleaf.deleteComment",
+          "when": "false"
+        },
+        {
+          "command": "turnleaf.resolveConflict",
+          "when": "false"
+        },
+        {
+          "command": "turnleaf.useResolution",
+          "when": "false"
+        },
+        {
+          "command": "turnleaf.editMessage",
+          "when": "false"
+        },
+        {
+          "command": "turnleaf.deleteMessage",
+          "when": "false"
+        },
+        {
+          "command": "turnleaf.acceptAllChanges",
+          "when": "false"
+        },
+        {
+          "command": "turnleaf.rejectAllChanges",
+          "when": "false"
+        }
+      ],
+      "comments/commentThread/context": [
+        {
+          "command": "turnleaf.reply",
+          "when": "commentController == turnleaf-local",
+          "group": "inline@1"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "turnleaf.checkRemote",
+          "when": "view == turnleaf.project",
+          "group": "navigation"
+        },
+        {
+          "command": "turnleaf.showReviewPanel",
+          "when": "view == turnleaf.project",
+          "group": "navigation"
+        }
+      ],
+      "comments/comment/title": [
+        {
+          "command": "turnleaf.editComment",
+          "when": "commentController == turnleaf-local && comment == overleaf.ownMessage",
+          "group": "inline@1"
+        },
+        {
+          "command": "turnleaf.deleteComment",
+          "when": "commentController == turnleaf-local && comment == overleaf.ownMessage",
+          "group": "inline@2"
+        }
+      ],
+      "comments/comment/context": [
+        {
+          "command": "turnleaf.saveComment",
+          "when": "commentController == turnleaf-local",
+          "group": "inline@1"
+        },
+        {
+          "command": "turnleaf.cancelCommentEdit",
+          "when": "commentController == turnleaf-local",
+          "group": "inline@2"
+        }
+      ],
+      "comments/commentThread/title": [
+        {
+          "command": "turnleaf.resolve",
+          "group": "inline@1",
+          "when": "commentController == turnleaf-local && commentThread =~ /^overleaf\\.open\\./"
+        },
+        {
+          "command": "turnleaf.reopen",
+          "group": "inline@1",
+          "when": "commentController == turnleaf-local && commentThread =~ /^overleaf\\.resolved\\./"
+        },
+        {
+          "submenu": "turnleaf.threadMore",
+          "group": "inline@9",
+          "when": "commentController == turnleaf-local"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "turnleaf.newComment",
+          "when": "editorHasSelection && resourceScheme == file",
+          "group": "overleaf@1"
+        }
+      ],
+      "turnleaf.threadMore": [
+        {
+          "command": "turnleaf.markAddressed",
+          "group": "1_local@1",
+          "when": "commentThread =~ /\\.local-open$/"
+        },
+        {
+          "command": "turnleaf.markDeclined",
+          "group": "1_local@2",
+          "when": "commentThread =~ /\\.local-open$/"
+        },
+        {
+          "command": "turnleaf.markOpen",
+          "group": "1_local@3",
+          "when": "commentThread =~ /\\.local-(addressed|declined)$/"
+        },
+        {
+          "command": "turnleaf.openOverleaf",
+          "group": "2_overleaf@1"
+        },
+        {
+          "command": "turnleaf.deleteThread",
+          "group": "3_delete@1"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "turnleaf",
+          "title": "Turnleaf",
+          "icon": "media/turnleaf.svg"
+        }
+      ]
+    },
+    "views": {
+      "turnleaf": [
+        {
+          "id": "turnleaf.project",
+          "name": "Project",
+          "type": "webview",
+          "contextualTitle": "Turnleaf"
+        }
+      ]
+    },
+    "colors": [
+      {
+        "id": "turnleaf.accent",
+        "description": "Accent for Turnleaf controls and outline icons.",
+        "defaults": {
+          "dark": "#79B8F2",
+          "light": "#0069A8",
+          "highContrast": "#75BEFF",
+          "highContrastLight": "#005A9E"
+        }
+      },
+      {
+        "id": "turnleaf.buttonBackground",
+        "description": "Background of the main Turnleaf action. Follows the theme's button color by default.",
+        "defaults": {
+          "dark": "button.background",
+          "light": "button.background",
+          "highContrast": "#0E639C",
+          "highContrastLight": "button.background"
+        }
+      },
+      {
+        "id": "turnleaf.addedForeground",
+        "description": "Added-line counts in Overleaf reviews.",
+        "defaults": {
+          "dark": "#89C999",
+          "light": "#266D40",
+          "highContrast": "#B5FFB5",
+          "highContrastLight": "#005A00"
+        }
+      },
+      {
+        "id": "turnleaf.removedForeground",
+        "description": "Removed-line counts in Overleaf reviews.",
+        "defaults": {
+          "dark": "#E39B9B",
+          "light": "#A1262A",
+          "highContrast": "#FFB0B0",
+          "highContrastLight": "#A00000"
+        }
+      },
+      {
+        "id": "turnleaf.addedLineBackground",
+        "description": "Added lines in Overleaf preview diffs.",
+        "defaults": {
+          "dark": "#203A2A",
+          "light": "#E7F3E8",
+          "highContrast": "#123418",
+          "highContrastLight": "#D8F5D8"
+        }
+      },
+      {
+        "id": "turnleaf.removedLineBackground",
+        "description": "Removed lines in Overleaf preview diffs.",
+        "defaults": {
+          "dark": "#44272B",
+          "light": "#FBE9E9",
+          "highContrast": "#451D22",
+          "highContrastLight": "#FFE0E0"
+        }
+      },
+      {
+        "id": "turnleaf.addedTextBackground",
+        "description": "Added text in Overleaf preview diffs.",
+        "defaults": {
+          "dark": "#315B3D",
+          "light": "#BDE5C3",
+          "highContrast": "#20602C",
+          "highContrastLight": "#A4E9AC"
+        }
+      },
+      {
+        "id": "turnleaf.removedTextBackground",
+        "description": "Removed text in Overleaf preview diffs.",
+        "defaults": {
+          "dark": "#703C43",
+          "light": "#F4C0C0",
+          "highContrast": "#7C252D",
+          "highContrastLight": "#FFB8B8"
+        }
+      },
+      {
+        "id": "turnleaf.commentBackground",
+        "description": "Subtle background of Overleaf comment anchors.",
+        "defaults": {
+          "dark": "#79B8F21A",
+          "light": "#0069A815",
+          "highContrast": "#75BEFF26",
+          "highContrastLight": "#005A9E20"
+        }
+      },
+      {
+        "id": "turnleaf.commentBorder",
+        "description": "Underline of Overleaf comment anchors.",
+        "defaults": {
+          "dark": "#79B8F266",
+          "light": "#0069A866",
+          "highContrast": "#75BEFF",
+          "highContrastLight": "#005A9E"
+        }
+      }
+    ],
+    "productIconThemes": [
+      {
+        "id": "turnleaf-outline",
+        "label": "Turnleaf outline comments",
+        "path": "media/turnleaf-product-icon-theme.json"
+      }
+    ],
+    "submenus": [
+      {
+        "id": "turnleaf.threadMore",
+        "label": "More Actions",
+        "icon": "$(ellipsis)"
+      }
+    ],
+    "walkthroughs": [
+      {
+        "id": "start",
+        "title": "Get started with Turnleaf",
+        "description": "Review Overleaf comments and suggestions in your editor, and send reviewed changes back.",
+        "steps": [
+          {
+            "id": "openFolder",
+            "title": "Open the folder of your paper",
+            "description": "Turnleaf works in an ordinary local folder that holds, or will hold, your LaTeX sources. Git is not needed.\n[Open Folder](command:workbench.action.files.openFolder)",
+            "media": {
+              "markdown": "media/walkthrough/open-folder.md"
+            },
+            "completionEvents": [
+              "onContext:workspaceFolderCount > 0"
+            ],
+            "when": "workspaceFolderCount == 0"
+          },
+          {
+            "id": "signIn",
+            "title": "Sign in to Overleaf",
+            "description": "A separate browser window opens for you to sign in to Overleaf and closes once you are signed in. The session is kept in the editor's secret storage and in the private browser profile until you sign out.\n[Sign in with browser](command:turnleaf.signIn)\nNo Chrome, Edge, Brave or Chromium? [Paste a session cookie](command:turnleaf.signInWithCookie) instead.",
+            "media": {
+              "markdown": "media/walkthrough/sign-in.md"
+            },
+            "completionEvents": [
+              "onCommand:turnleaf.signIn",
+              "onCommand:turnleaf.signInWithCookie"
+            ],
+            "when": "workspaceFolderCount > 0"
+          },
+          {
+            "id": "linkProject",
+            "title": "Choose your Overleaf project",
+            "description": "Pick the project this folder belongs to. Each folder links to one project.\n[Choose project](command:turnleaf.linkProject)",
+            "media": {
+              "markdown": "media/walkthrough/link-project.md"
+            },
+            "completionEvents": [
+              "onSettingChanged:turnleaf.projectId"
+            ],
+            "when": "workspaceFolderCount > 0"
+          },
+          {
+            "id": "chooseFiles",
+            "title": "Choose the files to synchronize",
+            "description": "Nothing is synchronized until files are chosen. The first time, the list starts with every source file on Overleaf ticked, the main document first.\n[Choose files](command:turnleaf.configureFiles)",
+            "media": {
+              "markdown": "media/walkthrough/choose-files.md"
+            },
+            "completionEvents": [
+              "onSettingChanged:turnleaf.trackedFiles"
+            ],
+            "when": "workspaceFolderCount > 0"
+          },
+          {
+            "id": "getLatest",
+            "title": "Get the latest version",
+            "description": "Get latest shows what changed on Overleaf as a merge preview. Your files change only when you choose Apply (n) in the preview.\n[Get latest](command:turnleaf.pull)",
+            "media": {
+              "markdown": "media/walkthrough/get-latest.md"
+            },
+            "completionEvents": [
+              "onCommand:turnleaf.pull",
+              "onCommand:turnleaf.applyReviewed"
+            ],
+            "when": "workspaceFolderCount > 0"
+          },
+          {
+            "id": "review",
+            "title": "Review comments and suggestions",
+            "description": "Comments appear next to your source and in the Turnleaf sidebar. Reply, resolve, or select text and choose New Comment on Selection.\n[Open the sidebar](command:turnleaf.showOverview)",
+            "media": {
+              "markdown": "media/walkthrough/review.md"
+            },
+            "completionEvents": [
+              "onCommand:turnleaf.showOverview",
+              "onView:turnleaf.project"
+            ],
+            "when": "workspaceFolderCount > 0"
+          },
+          {
+            "id": "send",
+            "title": "Enable sending, then Send",
+            "description": "Sending is off until you enable it for this project, in the Setup tab of the sidebar. The outgoing summary then lists every file and comment change, and Send writes exactly that.\n[Open the sidebar](command:turnleaf.showOverview) and select Setup.",
+            "media": {
+              "markdown": "media/walkthrough/send.md"
+            },
+            "completionEvents": [
+              "onSettingChanged:turnleaf.allowWrites"
+            ],
+            "when": "workspaceFolderCount > 0"
+          }
+        ]
+      }
+    ]
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "check": "tsc --noEmit",
+    "test:reference": "node scripts/fetch-reference.mjs",
+    "pretest": "node scripts/fetch-reference.mjs",
+    "test": "tsc -p tsconfig.test.json && node --test .test-dist/test/*.test.js",
+    "pretest:editor": "node scripts/fetch-reference.mjs",
+    "pretest:fixture": "node scripts/fetch-reference.mjs",
+    "pretest:installed": "node scripts/fetch-reference.mjs",
+    "package": "npm run build && node -e \"require('fs').mkdirSync('releases', { recursive: true })\" && vsce package --no-dependencies --out releases/",
+    "test:editor": "npm run build && node scripts/smoke.mjs",
+    "test:live": "npm run build && node scripts/live.mjs",
+    "test:ce": "npm run build && node scripts/ce.mjs",
+    "test:fixture": "node scripts/fixture.mjs",
+    "test:installed": "node scripts/installed-smoke.mjs"
+  },
+  "dependencies": {
+    "diff-match-patch": "https://codeload.github.com/overleaf/diff-match-patch/tar.gz/89805f9c671a77a263fc53461acd62aa7498f688",
+    "htmlparser2": "10.0.0",
+    "pdf-lib": "1.17.1",
+    "pdfjs-dist": "4.8.69",
+    "proper-lockfile": "4.1.2"
+  },
+  "devDependencies": {
+    "@types/node": "20.19.0",
+    "@types/vscode": "1.80.0",
+    "@vscode/vsce": "3.6.2",
+    "check-types": "5.1.0",
+    "esbuild": "0.25.12",
+    "lodash": "4.18.1",
+    "p-map": "4.0.0",
+    "path-browserify": "1.0.1",
+    "typescript": "5.9.3"
+  },
+  "license": "MIT",
+  "author": "Zeyu Xu",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ZeyuXuAudio/Turnleaf.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ZeyuXuAudio/Turnleaf/issues"
+  },
+  "homepage": "https://github.com/ZeyuXuAudio/Turnleaf#readme",
+  "qna": "https://github.com/ZeyuXuAudio/Turnleaf/issues"
+}
