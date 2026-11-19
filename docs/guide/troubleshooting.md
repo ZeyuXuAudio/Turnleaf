@@ -8,6 +8,25 @@ Overleaf sessions end after a while, or when you sign out of Overleaf elsewhere.
 
 If the browser window opens but does not close after signing in, make sure you finished on an Overleaf page (for example the project list), not a sign-in or password page. After 10 minutes the attempt ends.
 
+## "A Turnleaf sign-in window is still open from an earlier attempt"
+
+Each server has one private sign-in browser profile, and a browser can have a profile open only once. If a sign-in window from an earlier attempt is still running, for example because the editor was restarted or crashed while it was open, a new **Sign in with browser** cannot start its own window: the browser hands the request to the old window and exits. That old window may show Overleaf signed in while Turnleaf still waits.
+
+Choose **Close it and sign in** in the message: Turnleaf quits the old window and opens a new sign-in window. Turnleaf closes only a browser started on its own sign-in profile. If the message has no button (on Windows) or the window cannot be closed, quit that browser yourself, then sign in again. It runs apart from your everyday browser: on macOS it has its own icon in the Dock; click that window and press **⌘Q**.
+
+Turnleaf closes its sign-in window when you cancel the sign-in and when the editor stops normally.
+
+## "This browser's remote debugging is turned off by an administrator"
+
+**Sign in with browser** talks to its sign-in window through the browser's remote-debugging connection (a private pipe, no network port). On computers managed by an organization, a policy can turn this off (`RemoteDebuggingAllowed` set to false). The window then opens and may even show Overleaf signed in, but Turnleaf gets no answer from it. Turnleaf closes the window, says so in the message, and offers **Paste session cookie**.
+
+To check, open `chrome://policy` in that browser and look for `RemoteDebuggingAllowed`. Then either:
+
+- set `turnleaf.browserPath` to another Chromium-based browser that the policy does not cover, or
+- choose **Paste session cookie** and follow [Sign in with a session cookie](getting-started.md#sign-in-with-a-session-cookie-fallback).
+
+If the message says instead that the browser **did not answer Turnleaf**, the browser printed no policy notice but stayed silent for 20 seconds; the same two ways out apply.
+
 ## "No Chrome, Edge, Brave or Chromium browser was found"
 
 **Sign in with Browser** needs a Chromium-based browser. Install one, set `turnleaf.browserPath` to its executable, or choose **Paste session cookie** and follow [Sign in with a session cookie](getting-started.md#sign-in-with-a-session-cookie-fallback).

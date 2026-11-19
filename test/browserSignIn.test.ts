@@ -4,11 +4,12 @@ import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import type { ChildProcess } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { spawn, type ChildProcess } from 'node:child_process';
+import { mkdtemp, rm, symlink } from 'node:fs/promises';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
-import { browserSignIn, findBrowser, browserCandidates } from '../src/core/browserSignIn';
+import { hostname, tmpdir } from 'node:os';
+import { SyncError } from '../src/core/errors';
+import { browserSignIn, findBrowser, browserCandidates, closeLeftoverSignInBrowser, closeSignInBrowsers, LeftoverSignInWindowError, profileHolder } from '../src/core/browserSignIn';
 
 // A scripted stand-in for Chrome's DevTools pipe (fd 3 in, fd 4 out).
 function fakeBrowser(pages: { url: string; cookie?: string }[]) {
@@ -65,6 +66,104 @@ test('browser sign-in stops when the window is closed or the operation is cancel
   } finally { await rm(profileDir, { recursive: true, force: true }); }
 });
 
+// What a second launch on a profile in use does: hand over and exit without a word on the pipe.
+function handingOverBrowser() {
+  const child = new EventEmitter() as ChildProcess & EventEmitter;
+  Object.assign(child, { stdio: [null, null, null, new PassThrough(), new PassThrough()], pid: 999_999, exitCode: null, kill: () => true });
+  setImmediate(() => { (child as any).exitCode = 0; child.emit('exit', 0); });
+  return child;
+}
+// Stands in for the browser left running on the profile: a process whose command line names it.
+async function leftoverBrowser(profileDir: string) {
+  const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)', '--', `--user-data-dir=${profileDir}`], { stdio: 'ignore' });
+  await new Promise(resolve => child.once('spawn', resolve));
+  const exited = new Promise(resolve => child.once('exit', resolve));
+  await symlink(`${hostname()}-${child.pid}`, join(profileDir, 'SingletonLock'));
+  return { child, exited };
+}
+
+test('a sign-in window left open from an earlier attempt is reported and can be closed', { skip: process.platform === 'win32' && 'Uses the SingletonLock link of macOS and Linux' }, async () => {
+  const profileDir = await mkdtemp(join(tmpdir(), 'turnleaf-signin-'));
+  const leftover = await leftoverBrowser(profileDir);
+  try {
+    assert.deepEqual(profileHolder(profileDir), { pid: leftover.child.pid });
+    await assert.rejects(browserSignIn({ ...base, profileDir, launch: handingOverBrowser, validate: async () => true }),
+      (error: unknown) => error instanceof LeftoverSignInWindowError && error.pid === leftover.child.pid && /still open from an earlier attempt/.test(error.message));
+    assert.equal(await closeLeftoverSignInBrowser(profileDir), true);
+    await leftover.exited;
+  } finally { leftover.child.kill(); await rm(profileDir, { recursive: true, force: true }); }
+});
+
+test('only the browser on the sign-in profile is closed, and a stale lock is ignored', { skip: process.platform === 'win32' && 'Uses the SingletonLock link of macOS and Linux' }, async () => {
+  const profileDir = await mkdtemp(join(tmpdir(), 'turnleaf-signin-'));
+  try {
+    // A live process that is not the sign-in browser, as after process-ID reuse.
+    await symlink(`${hostname()}-${process.pid}`, join(profileDir, 'SingletonLock'));
+    await assert.rejects(browserSignIn({ ...base, profileDir, launch: handingOverBrowser, validate: async () => true }), LeftoverSignInWindowError);
+    assert.equal(await closeLeftoverSignInBrowser(profileDir, 200), false, 'A process whose command line does not name the profile is never signalled');
+    // A lock left by a browser that is gone: the window really was closed.
+    await rm(join(profileDir, 'SingletonLock'));
+    const gone = spawn(process.execPath, ['-e', ''], { stdio: 'ignore' });
+    await new Promise(resolve => gone.once('exit', resolve));
+    await symlink(`${hostname()}-${gone.pid}`, join(profileDir, 'SingletonLock'));
+    assert.equal(profileHolder(profileDir), undefined);
+    await assert.rejects(browserSignIn({ ...base, profileDir, launch: handingOverBrowser, validate: async () => true }), /closed before signing in/);
+  } finally { await rm(profileDir, { recursive: true, force: true }); }
+});
+
+test('stopping the extension closes a sign-in window that is still open', async () => {
+  const profileDir = await mkdtemp(join(tmpdir(), 'turnleaf-signin-'));
+  try {
+    const open = fakeBrowser([{ url: 'https://www.overleaf.test/login' }]);
+    const signIn = browserSignIn({ ...base, profileDir, launch: () => open.child, validate: async () => true });
+    await new Promise(resolve => setTimeout(resolve, 30));
+    await closeSignInBrowsers();
+    await assert.rejects(signIn, /cancelled/);
+    assert.equal(open.calls.at(-1), 'Browser.close');
+    assert.equal((open.child as any).exitCode, 1, 'The browser exited before closeSignInBrowsers resolved');
+  } finally { await rm(profileDir, { recursive: true, force: true }); }
+});
+
+// A browser whose RemoteDebuggingAllowed policy is false: it opens, but never reads the pipe.
+function deafBrowser(notice?: string) {
+  const stderr = new PassThrough(), child = new EventEmitter() as ChildProcess & EventEmitter;
+  const signals: (string | undefined)[] = [];
+  Object.assign(child, { stdio: [null, null, stderr, new PassThrough(), new PassThrough()], exitCode: null, kill: (signal?: string) => { signals.push(signal); (child as any).exitCode = 0; setImmediate(() => child.emit('exit', 0)); return true; } });
+  // Split across two chunks, as the browser may write it.
+  if (notice) setTimeout(() => { stderr.write(notice.slice(0, 12)); stderr.write(notice.slice(12) + '\n'); }, 10);
+  return { child, signals };
+}
+
+test('a browser that never answers on the pipe is reported, with the policy named when the browser prints it', async () => {
+  const profileDir = await mkdtemp(join(tmpdir(), 'turnleaf-signin-'));
+  try {
+    const blocked = deafBrowser('DevTools remote debugging is disallowed by the system admin.');
+    const started = Date.now();
+    await assert.rejects(browserSignIn({ ...base, profileDir, launch: () => blocked.child, validate: async () => true }),
+      (error: unknown) => error instanceof SyncError && error.code === 'browser-policy' && /RemoteDebuggingAllowed/.test(error.message) && /session cookie/.test(error.message));
+    assert(Date.now() - started < 5000, 'The policy notice ends the attempt at once, not after the reply timeout');
+    assert.equal(blocked.signals.length, 1, 'The browser that ignores Browser.close is terminated');
+    const silent = deafBrowser();
+    await assert.rejects(browserSignIn({ ...base, profileDir, replyMs: 50, launch: () => silent.child, validate: async () => true }),
+      (error: unknown) => error instanceof SyncError && error.code === 'browser-no-answer' && /did not answer/.test(error.message));
+    assert.equal(silent.signals.length, 1);
+  } finally { await rm(profileDir, { recursive: true, force: true }); }
+});
+
+test('a session Overleaf did not accept at first is checked again later, and the log never shows the cookie', async () => {
+  const profileDir = await mkdtemp(join(tmpdir(), 'turnleaf-signin-'));
+  try {
+    const browser = fakeBrowser([{ url: 'https://www.overleaf.test/project', cookie: 'secret-session' }]);
+    let checks = 0;
+    const lines: string[] = [];
+    const cookie = await browserSignIn({ ...base, profileDir, retryMs: 40, log: line => lines.push(line), launch: () => browser.child, validate: async () => ++checks > 1 });
+    assert.equal(cookie, 'secret-session');
+    assert.equal(checks, 2);
+    assert(lines.some(line => /connected/.test(line)) && lines.some(line => /did not accept the session on \/project/.test(line)), lines.join('\n'));
+    assert(!lines.join('\n').includes('secret-session'));
+  } finally { await rm(profileDir, { recursive: true, force: true }); }
+});
+
 test('browser detection honours a configured path and platform install locations', () => {
   assert.equal(findBrowser('/custom/chrome', [], path => path === '/custom/chrome'), '/custom/chrome');
   assert.equal(findBrowser('/missing/chrome', ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'], path => path !== '/missing/chrome'), undefined, 'A wrong configured path is reported, not silently replaced');
@@ -74,7 +173,7 @@ test('browser detection honours a configured path and platform install locations
 });
 
 const chrome = findBrowser();
-test('a real Chromium browser signs in once and reuses its private profile', { skip: !chrome && 'No Chromium-based browser installed' }, async () => {
+test('a real Chromium browser signs in once and reuses its private profile', { skip: !chrome && 'No Chromium-based browser installed' }, async t => {
   const sessions = { anonymous: 0, signedIn: 0 };
   const server = createServer((req, res) => {
     const cookie = /overleaf_session2=([^;]+)/.exec(req.headers.cookie ?? '')?.[1];
@@ -94,7 +193,14 @@ test('a real Chromium browser signs in once and reuses its private profile', { s
   try {
     const options = { baseUrl: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, executable: chrome!, profileDir, headless: true, pollMs: 100, timeoutMs: 30_000 };
     const tried: string[] = [];
-    assert.equal(await browserSignIn({ ...options, validate: async value => { tried.push(value); return value === 'signed-in'; } }), 'signed-in');
+    let first: string;
+    try { first = await browserSignIn({ ...options, validate: async value => { tried.push(value); return value === 'signed-in'; } }); }
+    catch (error) {
+      // A managed browser whose policy turns remote debugging off cannot take part.
+      if (error instanceof SyncError && error.code === 'browser-policy') { t.skip('Remote debugging is turned off by policy in this browser'); return; }
+      throw error;
+    }
+    assert.equal(first, 'signed-in');
     assert(!tried.includes('anonymous'));
     assert.equal(await browserSignIn({ ...options, validate: async value => value === 'signed-in' }), 'signed-in');
     assert.deepEqual(sessions, { anonymous: 1, signedIn: 1 }, 'The second sign-in reused the profile without a new login');

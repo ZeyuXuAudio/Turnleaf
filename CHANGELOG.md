@@ -27,6 +27,8 @@ All notable user-facing changes to Turnleaf are listed here, newest first. The f
 
 ### Fixed
 
+- **Sign in with browser** no longer waits in vain when a sign-in window from an earlier attempt is still running, for example after the editor restarted. Turnleaf says so and offers to close that window. It also closes its sign-in window when the editor stops.
+- **Sign in with browser** no longer waits for 10 minutes when the browser ignores Turnleaf's connection, as a managed Chrome does when an administrator turned remote debugging off. Turnleaf names the policy, closes the window and offers **Paste session cookie**. The Turnleaf output channel now shows the sign-in's progress (connected, Overleaf page reached, session not accepted yet), never the cookie, and a session Overleaf did not accept at first is checked again every 15 seconds.
 - The Turnleaf overview opens on its own only in a workspace that holds `.tex` files, not in every new folder.
 - The added and removed line counts next to each file match the lines its diff marks: a changed line counts once as removed and once as added, however many edits it has, and a new line counts once.
 

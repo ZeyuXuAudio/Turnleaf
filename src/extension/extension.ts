@@ -9,7 +9,7 @@ import { safeError, SessionExpiredError, SyncError } from '../core/errors';
 import { ProbeRecorder, ProbeSnapshot } from '../core/probe';
 import { installWorkspace, CommandMode } from './workspace';
 import { withOperation, progress, currentOperation } from '../core/operation';
-import { browserSignIn, findBrowser } from '../core/browserSignIn';
+import { browserSignIn, closeLeftoverSignInBrowser, closeSignInBrowsers, findBrowser, LeftoverSignInWindowError } from '../core/browserSignIn';
 import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { ProjectView } from './panel';
@@ -57,6 +57,10 @@ export interface LiveProbeApi {
   projects(): Promise<Project[]>;
   snapshot(): ProbeSnapshot;
 }
+
+// Closes a sign-in window that is still open, so that no browser keeps running
+// on the sign-in profile after the editor (or its extension host) stops.
+export function deactivate(): Promise<void> { return closeSignInBrowsers(); }
 
 export function activate(context: vscode.ExtensionContext): TestApi | LiveProbeApi | undefined {
   const output = vscode.window.createOutputChannel('Turnleaf');
@@ -121,13 +125,34 @@ export function activate(context: vscode.ExtensionContext): TestApi | LiveProbeA
       return;
     }
     progress('Sign in to Overleaf in the browser window. It closes once you are signed in.');
+    const profileDir = signInProfile(s.baseUrl);
     let validated: { client: OverleafReader; projects: Project[] } | undefined;
-    await browserSignIn({ baseUrl: s.baseUrl, executable, profileDir: signInProfile(s.baseUrl), signal: currentOperation()?.signal,
+    const attempt = () => browserSignIn({ baseUrl: s.baseUrl, executable, profileDir, signal: currentOperation()?.signal, log: line => output.appendLine(line),
       validate: async value => {
         const client = new OverleafReader(s.baseUrl, value, probe);
         try { validated = { client, projects: await client.signIn() }; return true; }
         catch (error) { if (error instanceof SessionExpiredError) return false; throw error; }
       } });
+    try { await attempt(); }
+    catch (error) {
+      // The browser opened but ignores the DevTools pipe, typically because an
+      // administrator's policy turns remote debugging off: the cookie is the way in.
+      if (error instanceof SyncError && (error.code === 'browser-policy' || error.code === 'browser-no-answer')) {
+        output.appendLine(error.message);
+        if (await vscode.window.showWarningMessage(error.message, 'Paste session cookie')) await signInWithCookie();
+        return;
+      }
+      // A browser kept running from an earlier attempt (for example after the editor
+      // restarted) holds the profile; a new launch only hands it a new window.
+      if (!(error instanceof LeftoverSignInWindowError)) throw error;
+      output.appendLine(error.message);
+      if (error.pid === undefined) throw error;
+      const choice = await vscode.window.showWarningMessage(error.message, { detail: 'Turnleaf can quit that browser window and open a new sign-in window.' }, 'Close it and sign in');
+      if (!choice) return;
+      if (!await closeLeftoverSignInBrowser(profileDir)) throw new SyncError('The earlier sign-in window could not be closed. Quit that browser window yourself and try again.', 'sign-in-window-open');
+      progress('Sign in to Overleaf in the browser window. It closes once you are signed in.');
+      await attempt();
+    }
     await signedIn(s, validated!.client, validated!.projects);
   }
   async function signInWithCookie(cookie?: string): Promise<void> {
