@@ -2,13 +2,6 @@
 
 All notable user-facing changes to Turnleaf are listed here, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## Unreleased
-
-### Fixed
-
-- The Turnleaf overview opens on its own only in a workspace that holds `.tex` files, not in every new folder.
-- The added and removed line counts next to each file match the lines its diff marks: a changed line counts once as removed and once as added, however many edits it has, and a new line counts once.
-
 ## 0.10.0
 
 ### Changed
@@ -19,6 +12,11 @@ All notable user-facing changes to Turnleaf are listed here, newest first. The f
 ### Added
 
 - A **Getting Started** walkthrough (**Welcome → Walkthroughs**, or **Turnleaf: Open Getting Started**): sign in, link a project, choose files, get latest, review comments, enable sending and send.
+
+### Fixed
+
+- The Turnleaf overview opens on its own only in a workspace that holds `.tex` files, not in every new folder.
+- The added and removed line counts next to each file match the lines its diff marks: a changed line counts once as removed and once as added, however many edits it has, and a new line counts once.
 
 ## 0.9.4
 
