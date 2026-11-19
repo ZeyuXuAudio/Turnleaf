@@ -25,6 +25,36 @@ Turnleaf is a VS Code and Cursor extension for authors who write LaTeX in a loca
 - **Annotated review PDF.** Put the comments as highlights and margin notes on your own compiled PDF.
 - **Self-hosted servers.** Point Turnleaf at your institution's Overleaf Server Pro.
 
+## See it at work
+
+**Get latest, then Apply.** Overleaf's edits are shown as a merge with your files first; Apply writes them and keeps your unsent edits.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://github.com/ZeyuXuAudio/Turnleaf/raw/HEAD/media/demos/get-latest-dark.gif">
+  <img src="https://github.com/ZeyuXuAudio/Turnleaf/raw/HEAD/media/demos/get-latest-light.gif" alt="Get latest opens a merge preview of Overleaf's edits; Apply writes them and keeps the local draft line." width="100%">
+</picture>
+
+**Comments and suggestions in the editor.** Open a thread, reply in the native comment widget and accept a suggestion; each change is listed as going out.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://github.com/ZeyuXuAudio/Turnleaf/raw/HEAD/media/demos/comments-suggestions-dark.gif">
+  <img src="https://github.com/ZeyuXuAudio/Turnleaf/raw/HEAD/media/demos/comments-suggestions-light.gif" alt="A reply typed in the editor's comment widget and an accepted suggestion appear in the outgoing summary." width="100%">
+</picture>
+
+**Send, then Undo this send.** Send writes exactly what the outgoing summary lists and verifies it on Overleaf; Undo this send takes it back and keeps your local files.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://github.com/ZeyuXuAudio/Turnleaf/raw/HEAD/media/demos/send-and-undo-dark.gif">
+  <img src="https://github.com/ZeyuXuAudio/Turnleaf/raw/HEAD/media/demos/send-and-undo-light.gif" alt="Send is verified on Overleaf; Undo this send shows what is taken back, then sends the undo." width="100%">
+</picture>
+
+**Review files for AI agents.** An agent reads the comment files, edits the source and queues a reply; nothing reaches Overleaf until you press Send.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://github.com/ZeyuXuAudio/Turnleaf/raw/HEAD/media/demos/agent-review-dark.gif">
+  <img src="https://github.com/ZeyuXuAudio/Turnleaf/raw/HEAD/media/demos/agent-review-light.gif" alt="An agent in the terminal edits the source and the thread's JSON file; Turnleaf lists both as going out, then sends them." width="100%">
+</picture>
+
 ## What Turnleaf never does
 
 - It never writes to Overleaf until you turn on **Enable sending** for the project. Sending is off by default for a new project, and **Choose project** turns it off again when the project changes.
