@@ -25,6 +25,7 @@ import { markerStyle } from './markerStyle';
 import { historyPage, threadText } from './history';
 import { shortDateTime } from './format';
 import { LocalReviewFiles } from '../core/reviewFiles';
+import { FRESHNESS, LOCAL_APPLIED, REVIEW_FILES_IMPORTED, SENT_VERIFIED, UNDO_SENT_VERIFIED, commentNote, diffSides, diffTabTitle, diffTitle, stateLabel as syncStateLabel, statusText } from './syncText';
 
 export interface WorkspaceScope { folder: vscode.WorkspaceFolder; baseUrl: string; projectId: string; trackedFiles: string[]; }
 /** 'quiet': no progress and no operation lock, for commands that only move the view. 'window': status-bar progress. */
@@ -87,7 +88,7 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
   let lastSource: vscode.TextEditor | undefined, cached = true, needsPull = true, note = '', session: 'unknown' | 'valid' | 'expired' | 'signedOut' = 'unknown';
   let statusVersion = 0, configurationVersion = 0;
   let overview: vscode.WebviewView | undefined, prepared: PreparedReview | undefined, allComments = false, applying = false, sending = false;
-  let checkedAt: string | undefined, freshness = 'Remote state not checked', disposed = false;
+  let checkedAt: string | undefined, freshness: string = FRESHNESS.unchecked, disposed = false;
   // True from a changed file selection until the first read of the new selection ends:
   // the review was rebuilt from the cache, but the sign-in and the sync state still hold.
   // `reselecting` is set while Choose source files writes the new selection, so the
@@ -202,7 +203,7 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
     selectedThread = undefined; selectedDiff = undefined; previewColors.clear();
     standing = undefined; undoing = undefined; standingInputs = undefined; standingRun++; standingBusy = false; clearTimeout(standingTimer); standingTimer = undefined; lastSent = undefined; lastReport = undefined;
     poller.configure(0);
-    checkedAt = undefined; freshness = 'Remote state not checked'; renderPanel();
+    checkedAt = undefined; freshness = FRESHNESS.unchecked; renderPanel();
     if (debounce) clearTimeout(debounce);
     for (const e of vscode.window.visibleTextEditors) for (const type of [highlight, insertion, marker]) e.setDecorations(type, []);
   }
@@ -224,33 +225,16 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
   }
   const outgoingRows = () => (standing?.plan?.files.length ?? 0) + (standing?.plan?.comments.length ?? 0);
   function stateLabel(): string {
-    if (reviewFilesError) return `Local review files: ${reviewFilesError}`;
-    if (cache.localApply) return 'Local update interrupted. Recover the saved checkpoint before continuing.';
-    if (prepared?.stale) return `Preview out of date: ${prepared.stale}`;
-    if (prepared?.complete) return prepared.complete;
-    if (prepared) return prepared.plan.files.some(f => f.conflict) || prepared.plan.pictures?.some(pictureConflict) ? 'Resolve conflicts in the preview before applying.' : prepared.plan.files.some(kept) ? 'Apply updates. Your kept files are then listed as going out.' : 'Review the proposed files and comments, then Apply updates.';
-    if (cache.partialPush && (session === 'expired' || session === 'signedOut')) return 'Send was interrupted. Sign in, then Get latest to check what reached Overleaf.';
-    if (session === 'expired' || session === 'signedOut') return 'Sign in to refresh or synchronize. Cached comments remain available.';
-    if (cache.partialPush) return 'Send was interrupted. Get latest to check what reached Overleaf.';
-    if (undoing) return undoing.notice ?? (undoing.blocked ? 'This send cannot be undone now.' : 'Check what is taken back from Overleaf, then Send undo.');
-    if (checking && (cached || !inspection)) return 'Checking Overleaf…';
-    if (cached && inspection) return 'Cached comments may be stale. Refresh before reviewing remote changes.';
-    if (!service && !inspection && linkedWithoutFiles()) return 'Project linked. Choose the source files to synchronize.';
-    if (!inspection) return service ? 'Project linked. Get latest to review incoming changes.' : 'Connect to an Overleaf project to get started.';
-    if (standing?.notice) return standing.notice;
     const files = standing?.plan?.files.length ?? 0, comments = standing?.plan?.comments.length ?? 0;
-    if (needsPull) return files + comments && standing?.plan?.incoming ? 'Overleaf changed too. Apply & send merges those changes into your files first; Get latest previews them.' : 'Incoming changes available. Get latest to review them.';
-    if (note) return note;
-    if (standing?.blocked) return 'Nothing can be sent yet.';
-    const unsent = [...files ? [`${files} ${files === 1 ? 'file' : 'files'}`] : [], ...comments ? [`${comments} comment ${comments === 1 ? 'change' : 'changes'}`] : []];
-    return unsent.length ? `Not sent yet: ${unsent.join(', ')}.` : 'Up to date with Overleaf.';
+    return syncStateLabel({ reviewFilesError, localApply: !!cache.localApply, partialPush: !!cache.partialPush, session, checking, cached, inspected: !!inspection, serviceReady: !!service, linkedWithoutFiles: linkedWithoutFiles(), needsPull, note,
+      preview: prepared && { stale: prepared.stale, complete: prepared.complete, conflicts: prepared.plan.files.some(f => f.conflict) || !!prepared.plan.pictures?.some(pictureConflict), kept: prepared.plan.files.some(kept) },
+      undo: undoing && { notice: undoing.notice, blocked: !!undoing.blocked },
+      standing: standing && { notice: standing.notice, files, comments, incoming: !!standing.plan?.incoming, blocked: !!standing.blocked } });
   }
   function paintStatus() {
     const open = rows.filter(r => !r.thread.resolved).length, suggestions = inspection?.docs.reduce((n, d) => n + d.changes.length, 0) ?? 0;
-    const warning = session === 'expired' || !!cache.partialPush || !!cache.reconciliation || needsPull;
-    const suffix = session === 'expired' ? 'session expired' : session === 'signedOut' ? 'signed out' : cache.localApply ? 'recovery needed' : prepared?.stale ? 'review out of date' : prepared && !prepared.complete ? 'review ready' : cache.partialPush ? 'Get latest required' : cache.reconciliation ? 'reconciliation pending' : checking ? 'checking' : cached && inspection ? 'cached' : freshness.startsWith('Remote state unknown') ? 'offline · retrying' : needsPull ? 'incoming changes' : note;
     const unsent = standing?.plan ? outgoingRows() : projectData.pending.length;
-    host.status.text = `${warning ? '$(warning) ' : ''}Overleaf: ${inspection ? `${open} open · ${suggestions} suggestions` : 'ready'}${unsent ? ` · $(arrow-up)${unsent}` : ''}${suffix ? ` · ${suffix}` : ''}`;
+    host.status.text = statusText({ session, localApply: !!cache.localApply, preview: prepared && { stale: prepared.stale, complete: prepared.complete }, partialPush: !!cache.partialPush, reconciliation: !!cache.reconciliation, checking, cached, inspected: !!inspection, freshness, needsPull, note, open, suggestions, unsent });
     host.status.tooltip = `Turnleaf ${context.extension.packageJSON.version}\n${stateLabel()}\n${freshness}${checkedAt ? ' · ' + new Date(checkedAt).toLocaleTimeString() : ''}`; host.status.command = 'turnleaf.showOverview';
     renderPanel();
   }
@@ -497,7 +481,7 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
       if (changed || fingerprint(stored.pending) !== fingerprint(projectData.pending)) {
         projectData = stored; inspection = projectedInspection(projectData); computed.clear(); diffs.clear();
         if (prepared && fingerprint(prepared.plan.pending) !== fingerprint(stored.pending) || activeSend) invalidateReview('Local comment JSON changed. Review again.');
-        note = 'Comment JSON saved as local drafts, listed as going out.';
+        note = REVIEW_FILES_IMPORTED;
       }
     } catch (error) {
       if (service !== s) return;
@@ -540,7 +524,7 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
     const redraw = !inspection || cached || before.revision !== projectData.revision || fingerprint(before.pending) !== fingerprint(projectData.pending);
     if (redraw) { inspection = projectedInspection(projectData); diffs.clear(); }
     cached = false; session = 'valid'; cache = await s.state.cache();
-    checkedAt = new Date().toISOString(); freshness = 'Checked just now';
+    checkedAt = new Date().toISOString(); freshness = FRESHNESS.justChecked;
     if (redraw) await draw();
     await saveAnchorMemory(s);
     await status();
@@ -574,7 +558,7 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
   async function showDiff(path: string, before: string, after: string, sides: [string, string], title: string, comments: CommentChange[], incoming: boolean) {
     const beforeUri = host.text(`${sides[0]}/${path}`, before), afterUri = host.text(`${sides[1]}/${path}`, after);
     previewColors.add(beforeUri, afterUri, before, after, comments.filter(change => change.path === path).map(change => ({ line: rows.find(row => row.thread.id === change.threadId)?.line || change.line || 0, text: commentNote(change, incoming) })).filter(note => note.line > 0));
-    await vscode.commands.executeCommand('vscode.diff', beforeUri, afterUri, `${title} (file text)`, { preview: true });
+    await vscode.commands.executeCommand('vscode.diff', beforeUri, afterUri, title, { preview: true });
     previewColors.paint(); renderPanel();
   }
   async function openPreviewDiff(arg?: { path?: string; preview?: string; value?: string }) {
@@ -588,7 +572,7 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
     const file = p.plan.files.find(f => f.path === path);
     if (!file) throw new SyncError('This file is outside the preview.', 'configuration');
     selectedDiff = path;
-    await showDiff(path, file.before, file.after, ['Local-current', 'Local-after-merge'], `${p.stale ? 'Out of date · ' : ''}${path} · local → after merge`, p.plan.comments, true);
+    await showDiff(path, file.before, file.after, diffSides.merge, diffTabTitle(path, 'merge', !!p.stale), p.plan.comments, true);
   }
   // A file row of the outgoing summary (value ''), of its Overleaf group ('incoming') or of the undo summary ('undo').
   async function openOutgoingDiff(arg?: { path?: string; value?: string }) {
@@ -602,15 +586,15 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
     if (arg?.value === 'undo') {
       const file = undoing?.plan?.plan.files.find(f => f.doc.path === path); if (!file) throw gone();
       selectedDiff = `undo:${path}`;
-      await showDiff(path, file.doc.text, file.text, ['Overleaf-current', 'Overleaf-after-undo'], `${path} · Overleaf now → after undo`, [], false);
+      await showDiff(path, file.doc.text, file.text, diffSides.undo, diffTabTitle(path, 'undo'), [], false);
     } else if (arg?.value === 'incoming') {
       const file = plan?.incoming?.files.find(f => f.path === path); if (!file) throw gone();
       selectedDiff = `incoming:${path}`;
-      await showDiff(path, file.before, file.after, ['Local-current', 'Local-after-merge'], `${path} · local → after merge`, plan!.incoming!.comments, true);
+      await showDiff(path, file.before, file.after, diffSides.merge, diffTabTitle(path, 'merge'), plan!.incoming!.comments, true);
     } else {
       const file = plan?.files.find(f => f.doc.path === path); if (!file) throw gone();
       selectedDiff = path;
-      await showDiff(path, file.doc.text, file.text, ['Overleaf-current', 'Overleaf-after-send'], `${path} · Overleaf now → after send`, plan!.comments, false);
+      await showDiff(path, file.doc.text, file.text, diffSides.send, diffTabTitle(path, 'send'), plan!.comments, false);
     }
   }
   /**
@@ -639,13 +623,9 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
       for (const uri of [before, after]) if (uri && !await vscode.env.openExternal(uri)) throw new SyncError(`Could not open ${path} in the system viewer.`, 'configuration');
       return;
     }
-    const title = `${path} · Overleaf now → after ${undo ? 'undo' : 'send'}`;
+    const title = diffTitle(path, undo ? 'undo' : 'send');
     if (before && after) await vscode.commands.executeCommand('vscode.diff', before, after, title, { preview: true });
     else if (before ?? after) await vscode.commands.executeCommand('vscode.open', before ?? after, { preview: true });
-  }
-  function commentNote(change: CommentChange, incoming: boolean): string {
-    const text = change.after?.messages.find(message => !change.before?.messages.some(old => old.id === message.id && old.text === message.text))?.text;
-    return `${change.label}${incoming ? ' from Overleaf' : ' on send'}${text ? `: “${text.length > 60 ? text.slice(0, 59) + '…' : text}”` : ''}`;
   }
   async function pull() {
     const s = await setup();
@@ -681,7 +661,7 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
     try {
       await showLocalSource(s, p.plan.proposed, p.plan.saved);
       const result = await new ReviewWorkflow(s).apply(p.plan, () => service === s && prepared === p && !p.stale && !dirtyTracked(s).length);
-      p.complete = `Local updates applied. Your unsent edits were preserved.`;
+      p.complete = LOCAL_APPLIED;
       host.output.appendLine(`Local recovery checkpoint: ${result.checkpoint}`);
       await showLocalSource(s, p.plan.proposed, p.plan.saved, true);
       diskTexts.clear(); computed.clear(); await acceptInspection(s, p.plan.inspection); await status('Local updates applied');
@@ -798,7 +778,7 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
       wrote = true;
       const result = await s.push(plan, valid, line => host.output.appendLine(line));
       if (rewrites) { diskTexts.clear(); computed.clear(); }
-      const outcome = sendOutcome(result, 'Sent and verified on Overleaf.');
+      const outcome = sendOutcome(result, SENT_VERIFIED);
       note = outcome; lastSent = result.mismatches.length || result.warnings.length ? undefined : { id: result.history, note: outcome };
       await acceptInspection(s, result.inspection);
       const report = ['# Send result', '', outcome, `Snapshot: ${result.snapshot}`, ...result.mismatches.map(path => `Verification mismatch: ${path}`), ...result.warnings, '', '## Comment anchors'];
@@ -861,7 +841,7 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
       }
       wrote = true;
       const result = await s.push(fresh.plan, () => service === s && !active.stale && writes() && !dirtyTracked(s).length, line => host.output.appendLine(line));
-      note = sendOutcome(result, 'Undo sent and verified on Overleaf. Your local files keep the edits, now listed as going out.'); noteHold = !result.mismatches.length;
+      note = sendOutcome(result, UNDO_SENT_VERIFIED); noteHold = !result.mismatches.length;
       undoing = undefined; lastSent = undefined;
       lastReport = ['# Undo result', '', note, `Undo of the send from ${new Date(fresh.time).toLocaleString()}`, `Snapshot: ${result.snapshot}`, ...result.mismatches.map(path => `Verification mismatch: ${path}`), ...result.warnings, ...fresh.stays.map(row => `Stays as sent: ${row.label}${row.path ? ` · ${row.path}` : ''}. ${row.reason}`)].join('\n');
       await acceptInspection(s, result.inspection);
@@ -902,7 +882,7 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
     const data = await s.state.read();
     if (p && !p.complete && (!sameSaved(await readSaved(s.root, s.paths, true), p.plan.saved) || dirtyTracked(s).length || data.revision !== p.plan.revision || fingerprint(data.pending) !== fingerprint(p.plan.pending))) invalidateReview('Saved files, comment drafts, or the sync baseline changed.');
     await acceptInspection(s, fresh);
-    freshness = needsPull ? 'Incoming updates available' : live ? 'Live · up to date' : 'No new remote changes'; poller.succeeded(); paintStatus();
+    freshness = needsPull ? FRESHNESS.incoming : live ? FRESHNESS.live : FRESHNESS.quiet; poller.succeeded(); paintStatus();
   }
   function scheduleCheck() {
     // With live updates, events carry changes and a 60-second check over the same

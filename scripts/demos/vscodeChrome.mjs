@@ -259,6 +259,7 @@ function renderDecoratedLine(raw, spans = [], tokenizer = tokenizeLatexSlice) {
   if (!spans.length) return tokenizer(raw);
   const resolved = [];
   for (const sp of spans) {
+    if (sp.start !== undefined) { if (sp.end > sp.start) resolved.push({ start: sp.start, end: sp.end, cls: sp.cls }); continue; }
     if (!sp.text) continue;
     const idx = raw.indexOf(sp.text);
     if (idx >= 0) resolved.push({ start: idx, end: idx + sp.text.length, cls: sp.cls });
@@ -283,6 +284,21 @@ const gutterBubbleSvg = (kind = 'open') => {
     : '';
   return `<svg class="gutter-comment ${kind}" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 2.5h11a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H6.3l-3.3 2.8v-2.8H2.5a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1Z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>${inner}</svg>`;
 };
+
+const codicons = {
+  check: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="m3.5 8.5 3 3 6-7"/></svg>',
+  ellipsis: '<svg viewBox="0 0 16 16" fill="currentColor"><circle cx="3.5" cy="8" r="1.1"/><circle cx="8" cy="8" r="1.1"/><circle cx="12.5" cy="8" r="1.1"/></svg>',
+  chevronUp: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="m4 10 4-4 4 4"/></svg>',
+  warning: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M8 2 14.5 13.5h-13Z"/><path d="M8 6.5v3.2M8 11.4v.2" stroke-linecap="round"/></svg>',
+  arrowUp: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V3M4 7l4-4 4 4"/></svg>',
+};
+
+/** A status bar item's text, with the extension's `$(warning)` and `$(arrow-up)` codicons drawn. */
+export function renderStatusText(text) {
+  return escapeHtml(text)
+    .replace(/\$\(warning\)\s?/g, `<span class="status-icon">${codicons.warning}</span>`)
+    .replace(/\$\(arrow-up\)/g, `<span class="status-icon">${codicons.arrowUp}</span>`);
+}
 
 function renderAvatar(name) {
   const init = name.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0].toUpperCase()).join('');
@@ -324,14 +340,15 @@ export function renderCodeEditor({
       `</div>`
     );
     if (inlineThread && inlineThread.afterLine === ln) {
+      // VS Code's comment widget: no avatar without an icon path; the comment label
+      // (Pending send) after the relative time; the thread label in the header.
       const msgs = inlineThread.messages.map((m) => `
         <div class="thread-msg">
-          ${renderAvatar(m.author)}
           <div class="thread-msg-body">
             <div class="thread-msg-head">
               <strong>${escapeHtml(m.author)}</strong>
               <span class="thread-time">${escapeHtml(m.time)}</span>
-              ${m.pending ? '<span class="thread-badge">Pending send</span>' : ''}
+              ${m.label ? `<span class="thread-comment-label">${escapeHtml(m.label)}</span>` : ''}
             </div>
             <div class="thread-msg-text">${escapeHtml(m.text)}</div>
           </div>
@@ -340,18 +357,20 @@ export function renderCodeEditor({
       const box = inlineThread.showReplyBox ? `
         <div class="thread-reply">
           <div class="thread-input${inlineThread.typingFocused ? ' focused' : ''}" data-demo-target="inline-reply-box">
-            <span class="typed-value" data-live-text>${escapeHtml(inlineThread.typedText ?? '')}</span><span class="typing-caret${inlineThread.caretActive ? ' on' : ''}"></span><span class="placeholder"${inlineThread.typedText ? ' hidden' : ''}>Reply…</span>
+            <span class="typed-value" data-live-text>${escapeHtml(inlineThread.typedText ?? '')}</span><span class="typing-caret${inlineThread.caretActive ? ' on' : ''}"></span><span class="placeholder"${inlineThread.typedText ? ' hidden' : ''}>Reply...</span>
           </div>
-          <button type="button" class="thread-btn primary" data-demo-target="inline-reply-btn">Reply</button>
+          <div class="thread-reply-actions"><button type="button" class="thread-btn primary" data-demo-target="inline-reply-btn">Reply</button></div>
         </div>
       ` : '';
       rows.push(`
         <div class="inline-thread-wrap">
           <div class="inline-thread">
             <div class="inline-thread-head">
-              <span class="thread-provider">${gutterBubbleSvg('open')}<span>Overleaf · ${escapeHtml(inlineThread.title)}</span></span>
-              <span class="thread-actions">
-                <span class="thread-action-pill">Resolve on send</span>
+              <span class="thread-head-label">${escapeHtml(inlineThread.label ?? '')}</span>
+              <span class="thread-actions" aria-label="Resolve Thread on Send, More Actions, Collapse">
+                <span class="thread-icon" title="Resolve Thread on Send">${codicons.check}</span>
+                <span class="thread-icon" title="More Actions...">${codicons.ellipsis}</span>
+                <span class="thread-icon" title="Collapse">${codicons.chevronUp}</span>
               </span>
             </div>
             <div class="inline-thread-body">${msgs}${box}</div>
@@ -367,27 +386,22 @@ export function renderCodeEditor({
  * Renders a VS Code side-by-side diff editor matching Turnleaf's ReviewDiffDecorations.
  * Line objects: { ln?: number, text: string, kind?: 'added' | 'removed' | 'blank', span?: string, note?: string }
  */
-export function renderDiffEditor({ leftLabel, rightLabel, leftLines, rightLines }) {
-  const renderSide = (items, side) => items.map((item) => {
+export function renderDiffEditor({ leftLines, rightLines }) {
+  const renderSide = (items) => items.map((item) => {
     if (item.kind === 'blank') {
       return `<div class="diff-line blank"><span class="ln"></span><span class="code-text">&nbsp;</span></div>`;
     }
     const lineCls = item.kind === 'added' ? ' added' : item.kind === 'removed' ? ' removed' : '';
-    const spans = item.span ? [{ text: item.span, cls: item.kind === 'added' ? 'diff-added-text' : 'diff-removed-text' }] : [];
+    const cls = item.kind === 'added' ? 'diff-added-text' : 'diff-removed-text';
+    const spans = (item.spans ?? []).map((sp) => ({ ...sp, cls }));
     const note = item.note ? `<span class="diff-note">${escapeHtml(item.note)}</span>` : '';
     return `<div class="diff-line${lineCls}"><span class="ln">${item.ln ?? ''}</span><span class="code-text">${renderDecoratedLine(item.text, spans, tokenizeLatexSlice)}${note}</span></div>`;
   }).join('');
 
   return `
     <div class="diff-editor">
-      <div class="diff-pane left">
-        <div class="diff-subhead">${escapeHtml(leftLabel)}</div>
-        <div class="diff-lines">${renderSide(leftLines, 'left')}</div>
-      </div>
-      <div class="diff-pane right">
-        <div class="diff-subhead">${escapeHtml(rightLabel)}</div>
-        <div class="diff-lines">${renderSide(rightLines, 'right')}</div>
-      </div>
+      <div class="diff-pane left"><div class="diff-lines">${renderSide(leftLines)}</div></div>
+      <div class="diff-pane right"><div class="diff-lines">${renderSide(rightLines)}</div></div>
     </div>
   `;
 }
@@ -396,14 +410,15 @@ export function renderDiffEditor({ leftLabel, rightLabel, leftLines, rightLines 
  * Renders a split LaTeX + JSON review file editor above an integrated Agent panel.
  */
 export function renderSplitAgentEditor({
-  leftTabName,
-  rightTabName,
+  leftTab,
+  rightTab,
   leftLines,
   leftFlashLines = [],
   leftHighlights = {},
   rightJsonLines,
+  rightFirstLine = 1,
   rightJsonFlashLines = [],
-  agentLogs = [],
+  terminalLines = [],
 }) {
   const leftFlash = new Set(leftFlashLines);
   const rightFlash = new Set(rightJsonFlashLines);
@@ -413,50 +428,41 @@ export function renderSplitAgentEditor({
     return `<div class="code-line compact${leftFlash.has(ln) ? ' line-flash' : ''}"><span class="ln">${ln}</span><span class="code-text">${renderDecoratedLine(raw, spans, tokenizeLatexSlice)}</span></div>`;
   }).join('');
   const renderRight = rightJsonLines.map((raw, i) => {
-    const ln = i + 1;
+    const ln = rightFirstLine + i;
     return `<div class="code-line compact${rightFlash.has(ln) ? ' line-flash' : ''}"><span class="ln">${ln}</span><span class="code-text">${renderDecoratedLine(raw, [], tokenizeJsonSlice)}</span></div>`;
   }).join('');
-  const logsHtml = agentLogs.map((entry) => `
-    <div class="agent-log ${entry.status ?? 'done'}">
-      <span class="agent-glyph">${entry.status === 'running' ? '●' : '✓'}</span>
-      <span class="agent-msg">${escapeHtml(entry.text)}</span>
-      ${entry.detail ? `<span class="agent-detail">${escapeHtml(entry.detail)}</span>` : ''}
-    </div>
-  `).join('');
+  const termHtml = terminalLines.map((line) => `<div class="term-line ${line.kind ?? 'out'}">${escapeHtml(line.text)}${line.caret ? '<span class="term-caret"></span>' : ''}</div>`).join('');
 
+  // Two editor groups side by side, each with its own tab bar, above the Terminal.
   return `
     <div class="split-agent-layout">
       <div class="split-editors">
         <div class="split-pane left">
-          <div class="split-tabstrip">
-            <span class="split-tab active">${texFileDot()}${escapeHtml(leftTabName)}</span>
-          </div>
+          <div class="split-tabstrip">${renderTab({ ...leftTab, active: true })}</div>
           <div class="split-code">${renderLeft}</div>
         </div>
         <div class="split-pane right">
-          <div class="split-tabstrip">
-            <span class="split-tab active">${jsonFileBadge()}${escapeHtml(rightTabName)}</span>
-          </div>
+          <div class="split-tabstrip">${renderTab({ ...rightTab, active: true })}</div>
           <div class="split-code">${renderRight}</div>
         </div>
       </div>
       <div class="bottom-panel">
         <div class="bottom-panel-tabs">
-          <span class="panel-tab active">CODING AGENT</span>
-          <span class="panel-tab">TERMINAL</span>
+          <span class="panel-tab">PROBLEMS</span>
           <span class="panel-tab">OUTPUT</span>
+          <span class="panel-tab">DEBUG CONSOLE</span>
+          <span class="panel-tab active">TERMINAL</span>
+          <span class="panel-tab">PORTS</span>
         </div>
-        <div class="bottom-panel-body">${logsHtml}</div>
+        <div class="bottom-panel-body terminal">${termHtml}</div>
       </div>
     </div>
   `;
 }
 
-function texFileDot() {
-  return `<span class="file-tag tex">TeX</span>`;
-}
-function jsonFileBadge() {
-  return `<span class="file-tag json">{}</span>`;
+const fileIcon = (name) => /\.json$/i.test(name) ? `<span class="file-tag json">{}</span>` : `<span class="file-tag tex">TeX</span>`;
+function renderTab({ title, file = title, active = false, preview = false }) {
+  return `<div class="editor-tab${active ? ' active' : ''}${preview ? ' preview' : ''}">${fileIcon(file)}<span>${escapeHtml(title)}</span></div>`;
 }
 
 const activityIcons = {
@@ -677,6 +683,8 @@ html, body {
   color: var(--chrome-tab-fg);
   border-right: 1px solid var(--chrome-border);
 }
+.editor-tabs:empty { display: none; }
+.editor-tab.preview > span:last-child { font-style: italic; }
 .editor-tab.active {
   background: var(--chrome-tab-active-bg);
   color: var(--chrome-tab-active-fg);
@@ -808,18 +816,10 @@ html, body {
   font-size: 11.5px;
   font-weight: 500;
 }
-.thread-provider {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.thread-action-pill {
-  font-size: 11px;
-  padding: 2px 7px;
-  border-radius: 4px;
-  border: 1px solid var(--chrome-thread-border);
-  color: var(--vscode-descriptionForeground);
-}
+.thread-head-label { color: var(--vscode-foreground); }
+.thread-actions { display: inline-flex; gap: 6px; color: var(--vscode-icon-foreground, var(--vscode-foreground)); }
+.thread-icon { display: inline-flex; width: 16px; height: 16px; opacity: 0.85; }
+.thread-icon svg { width: 16px; height: 16px; }
 .inline-thread-body { padding: 8px 10px; display: flex; flex-direction: column; gap: 8px; }
 .thread-msg { display: flex; gap: 8px; align-items: flex-start; }
 .thread-avatar {
@@ -838,18 +838,13 @@ html, body {
 .thread-msg-head { display: flex; align-items: center; gap: 6px; }
 .thread-msg-head strong { font-weight: 600; font-size: 12px; }
 .thread-time { font-size: 11px; color: var(--vscode-descriptionForeground); }
-.thread-badge {
-  font-size: 10px;
-  padding: 0 6px;
-  border-radius: 8px;
-  border: 1px solid var(--vscode-turnleaf-accent);
-  color: var(--vscode-turnleaf-accent);
-}
+.thread-comment-label { font-size: 11px; font-style: italic; color: var(--vscode-descriptionForeground); }
 .thread-msg-text { margin-top: 2px; line-height: 1.45; }
 .thread-reply {
   display: flex;
+  flex-direction: column;
   gap: 6px;
-  align-items: center;
+  align-items: stretch;
   padding-top: 4px;
   border-top: 1px solid color-mix(in srgb, var(--chrome-thread-border) 60%, transparent);
 }
@@ -875,6 +870,7 @@ html, body {
   background: var(--vscode-foreground);
 }
 .typing-caret.on { display: inline-block; }
+.thread-reply-actions { display: flex; justify-content: flex-end; }
 .thread-btn {
   height: 26px;
   padding: 0 10px;
@@ -901,18 +897,6 @@ html, body {
   overflow: hidden;
 }
 .diff-pane.left { border-right: 1px solid var(--chrome-border); }
-.diff-subhead {
-  height: 24px;
-  flex: none;
-  display: flex;
-  align-items: center;
-  padding: 0 12px;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--vscode-descriptionForeground);
-  background: color-mix(in srgb, var(--vscode-sideBar-background) 65%, var(--vscode-editor-background));
-  border-bottom: 1px solid var(--chrome-border);
-}
 .diff-lines { padding: 8px 0; overflow: hidden; }
 .diff-line {
   display: flex;
@@ -923,6 +907,7 @@ html, body {
   line-height: 1.68;
 }
 .diff-line .ln { width: 24px; padding-right: 7px; }
+.diff-line .code-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .diff-line.added { background: var(--chrome-diff-added-line); }
 .diff-line.removed { background: var(--chrome-diff-removed-line); }
 .diff-line.blank { opacity: 0.45; }
@@ -975,7 +960,7 @@ html, body {
 }
 .split-code { padding: 8px 0; overflow: hidden; flex: 1; }
 .bottom-panel {
-  height: 132px;
+  height: 150px;
   flex: none;
   display: flex;
   flex-direction: column;
@@ -999,6 +984,19 @@ html, body {
   border-bottom: 1.5px solid var(--vscode-turnleaf-accent);
   padding: 6px 0;
 }
+.bottom-panel-body.terminal {
+  gap: 2px;
+  /* A terminal shows its latest lines; older ones scroll off the top. */
+  justify-content: flex-end;
+  overflow: hidden;
+  font-family: var(--vscode-editor-font-family);
+  font-size: 11.5px;
+  white-space: pre;
+}
+.term-line.prompt { color: var(--vscode-foreground); }
+.term-line.out { color: var(--vscode-descriptionForeground); }
+.term-line.done { color: var(--vscode-foreground); }
+.term-caret { display: inline-block; width: 7px; height: 13px; margin-left: 1px; vertical-align: -2px; background: var(--vscode-foreground); }
 .bottom-panel-body {
   flex: 1;
   padding: 8px 14px;
@@ -1041,6 +1039,8 @@ html, body {
   align-items: center;
   height: 100%;
 }
+.status-icon { display: inline-flex; width: 13px; height: 13px; margin: 0 3px; vertical-align: -2px; }
+.status-icon svg { width: 13px; height: 13px; }
 .status-remote {
   height: 100%;
   display: inline-flex;
@@ -1080,15 +1080,20 @@ html, body {
   position: fixed;
   top: 0;
   left: 0;
-  width: 28px;
-  height: 28px;
-  margin: -14px 0 0 -14px;
+  width: 30px;
+  height: 30px;
+  margin: -15px 0 0 -15px;
   border-radius: 50%;
-  border: 2px solid var(--vscode-turnleaf-accent);
+  border: 2.5px solid var(--vscode-turnleaf-accent);
+  background: color-mix(in srgb, var(--vscode-turnleaf-accent) 22%, transparent);
   pointer-events: none;
   z-index: 9998;
   opacity: 0;
 }
+.demo-press { filter: brightness(0.82); transform: translateY(1px); }
+/* With a terminal panel open, the caption sits above it, clear of the latest terminal line. */
+body:has(.bottom-panel) #demo-caption { bottom: 196px; }
+.demo-flash { box-shadow: 0 0 0 2px color-mix(in srgb, var(--vscode-turnleaf-accent) var(--demo-flash, 0%), transparent), 0 0 0 6px color-mix(in srgb, var(--vscode-turnleaf-accent) calc(var(--demo-flash, 0%) * 0.3), transparent); border-radius: 4px; }
 #demo-caption {
   position: fixed;
   right: 16px;
@@ -1173,13 +1178,11 @@ export function renderWindowHtml({
     </aside>
     <section class="editor-group">
       <div class="editor-tabs" id="editor-tabs"></div>
-      <div class="breadcrumbs" id="editor-breadcrumbs"></div>
       <div class="editor-body" id="editor-body"></div>
     </section>
   </div>
   <footer class="statusbar">
     <div class="status-left">
-      <span class="status-remote">Turnleaf</span>
       <span class="status-item" id="status-sync"></span>
     </div>
     <div class="status-right">
@@ -1221,9 +1224,8 @@ window.__applyFrame = function(frame) {
     const st = STATES[currentState];
     document.getElementById('project').innerHTML = st.sidebarHtml;
     document.getElementById('editor-tabs').innerHTML = st.tabsHtml;
-    document.getElementById('editor-breadcrumbs').innerHTML = st.breadcrumbsHtml;
     document.getElementById('editor-body').innerHTML = st.editorHtml;
-    document.getElementById('status-sync').textContent = st.statusText;
+    document.getElementById('status-sync').innerHTML = st.statusHtml;
     document.getElementById('status-cursor').textContent = st.cursorText || 'Ln 8, Col 18';
   }
 
@@ -1232,6 +1234,20 @@ window.__applyFrame = function(frame) {
   if (frame.hoverSelector) {
     const h = document.querySelector(frame.hoverSelector);
     if (h) h.classList.add('demo-hover');
+  }
+
+  // Pressed control while the cursor clicks, and a short outline on what changed
+  document.querySelectorAll('.demo-press').forEach(n => n.classList.remove('demo-press'));
+  if (frame.pressSelector) {
+    const pressed = document.querySelector(frame.pressSelector);
+    if (pressed) pressed.classList.add('demo-press');
+  }
+  document.querySelectorAll('.demo-flash').forEach(n => { n.classList.remove('demo-flash'); n.style.removeProperty('--demo-flash'); });
+  if (frame.flashSelector && frame.flash > 0) {
+    for (const el of document.querySelectorAll(frame.flashSelector)) {
+      el.classList.add('demo-flash');
+      el.style.setProperty('--demo-flash', String(Math.round(frame.flash * 100)) + '%');
+    }
   }
 
   // Live typing inside inline comment reply box
@@ -1280,17 +1296,8 @@ window.__applyFrame = function(frame) {
 </html>`;
 }
 
-export function renderTabBar({ title, diffLabel, secondary }) {
-  return `
-    <div class="editor-tab active">
-      ${texFileDot()}
-      <span>${escapeHtml(title)}</span>
-      ${diffLabel ? `<span class="diff-badge">${escapeHtml(diffLabel)}</span>` : ''}
-    </div>
-    ${secondary ? `<div class="editor-tab">${texFileDot()}<span>${escapeHtml(secondary)}</span></div>` : ''}
-  `;
+/** VS Code tabs: a file shows its base name; a diff shows the title it was opened with, in italics while it is a preview. */
+export function renderTabBar(tabs) {
+  return tabs.map(renderTab).join('');
 }
 
-export function renderBreadcrumbs(parts) {
-  return parts.map((p, i) => `${i > 0 ? '<span aria-hidden="true">›</span>' : ''}<span>${escapeHtml(p)}</span>`).join('');
-}

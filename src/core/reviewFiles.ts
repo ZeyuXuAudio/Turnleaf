@@ -49,7 +49,8 @@ function anchorOf(inspection: Inspection | undefined, id: string): SourceAnchor 
   }
   return null;
 }
-function recordFor(store: ProjectStore, data: ProjectData, id: string): ThreadFile {
+/** A thread file as written to review/threads/, before its generation is set. */
+export function recordFor(store: Pick<ProjectStore, 'key'>, data: ProjectData, id: string): ThreadFile {
   const pending = draftsFor(data, id), parent = pending.find(draft => draft.kind === 'createThread'), selection = parent?.anchor;
   return { $schema: '../thread.schema.json', schema: 1, projectKey: store.key, threadId: id, generation: '',
     baseline: { thread: data.acknowledged?.threads[id] ?? null, anchor: anchorOf(data.acknowledged, id) },

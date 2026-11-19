@@ -110,7 +110,7 @@ export function projectedInspection(data: ProjectData): Inspection | undefined {
   }
   return result;
 }
-const labels: Record<CommentDraft['kind'], string> = { createThread: 'New comment', reply: 'Reply', editMessage: 'Edit message', deleteMessage: 'Delete message', deleteThread: 'Delete thread', resolve: 'Resolve thread', reopen: 'Reopen thread', acceptChange: 'Accept suggestion', rejectChange: 'Reject suggestion' };
+export const draftLabels: Record<CommentDraft['kind'], string> = { createThread: 'New comment', reply: 'Reply', editMessage: 'Edit message', deleteMessage: 'Delete message', deleteThread: 'Delete thread', resolve: 'Resolve thread', reopen: 'Reopen thread', acceptChange: 'Accept suggestion', rejectChange: 'Reject suggestion' };
 export const decisionOf = (draft: CommentDraft): Decision => draft.kind === 'acceptChange' ? 'accept' : 'reject';
 export function outgoingComments(inspection: Inspection, pending: CommentDraft[]): CommentChange[] {
   const threads = structuredClone(inspection.threads);
@@ -119,13 +119,13 @@ export function outgoingComments(inspection: Inspection, pending: CommentDraft[]
       const doc = inspection.docs.find(doc => doc.docId === draft.docId), change = draft.change!, index = doc ? findSuggestion(doc, change) : -1;
       const pos = index >= 0 ? doc!.changes[index].pos : change.pos;
       const line = lineAt(doc?.text ?? '', pos);
-      return { id: draft.id, draftId: draft.id, path: draft.path, label: labels[draft.kind], line, suggestion: { decision: decisionOf(draft), kind: change.kind, text: change.text, author: change.author, line } };
+      return { id: draft.id, draftId: draft.id, path: draft.path, label: draftLabels[draft.kind], line, suggestion: { decision: decisionOf(draft), kind: change.kind, text: change.text, author: change.author, line } };
     }
     const before = threads[draft.threadId], after = draftThread(before, draft, inspection.userId);
     if (after) threads[draft.threadId] = after; else delete threads[draft.threadId];
     // What the comment is on: the selection for a new thread, otherwise the anchored text.
     const anchor = draft.anchor ? { text: draft.anchor.source.slice(draft.anchor.from, draft.anchor.to), line: lineAt(draft.anchor.source, draft.anchor.from) } : { text: anchorView(inspection, draft.threadId)?.text, line: anchorLine(inspection, draft.threadId) };
-    return { id: draft.id, draftId: draft.id, threadId: draft.threadId, path: draft.path, label: labels[draft.kind], ...anchor?.line && { line: anchor.line }, before, after, ...anchor?.text && { anchorText: anchor.text } };
+    return { id: draft.id, draftId: draft.id, threadId: draft.threadId, path: draft.path, label: draftLabels[draft.kind], ...anchor?.line && { line: anchor.line }, before, after, ...anchor?.text && { anchorText: anchor.text } };
   });
 }
 // create: the file is only local and never synchronized, so Send creates it on
@@ -200,7 +200,7 @@ export function irreversible(plan: PushPlan): Record<string, string> {
   }
   return marks;
 }
-const kindOf = Object.fromEntries(Object.entries(labels).map(([kind, label]) => [label, kind])) as Record<string, CommentKind | undefined>;
+const kindOf = Object.fromEntries(Object.entries(draftLabels).map(([kind, label]) => [label, kind])) as Record<string, CommentKind | undefined>;
 // What a Send record says about its comment changes and edits. Records written
 // before `sent` existed: the kind from the label, the created message from the read-back.
 function sentInfo(record: SyncHistory, userId?: string): { files: NonNullable<SyncHistory['sent']>['files']; comments: Record<string, { kind?: CommentKind; messageId?: string } | undefined> } {

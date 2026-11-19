@@ -51,6 +51,10 @@ async function loadTurnleafPanelModules(tmpDir) {
         "export { panelStyle } from './src/extension/panelStyle.ts';",
         "export { historyStyle } from './src/extension/history.ts';",
         "export { icon, brandMark } from './src/extension/icons.ts';",
+        "export * as text from './src/extension/syncText.ts';",
+        "export { outgoingComments } from './src/core/folderWorkflow.ts';",
+        "export { recordFor } from './src/core/reviewFiles.ts';",
+        "export { diffText, changedLines } from './src/core/diff.ts';",
       ].join('\n'),
       resolveDir: repoRoot,
       loader: 'ts',
@@ -141,6 +145,9 @@ function roundFrameKey(frame) {
     x: Number((frame.x ?? 0).toFixed(1)),
     y: Number((frame.y ?? 0).toFixed(1)),
     p: !!frame.pressing,
+    ps: frame.pressSelector ?? '',
+    fs: frame.flashSelector ?? '',
+    fl: Number((frame.flash ?? 0).toFixed(2)),
     r: Number((frame.ripple ?? 0).toFixed(2)),
     rx: Number((frame.rippleX ?? 0).toFixed(1)),
     ry: Number((frame.rippleY ?? 0).toFixed(1)),
@@ -274,8 +281,9 @@ async function main() {
   const chromeUserDir = path.join(tmpDir, 'chrome-profile');
   fs.mkdirSync(chromeUserDir, { recursive: true });
 
-  const { projectContent, panelStyle, historyStyle } = await loadTurnleafPanelModules(tmpDir);
-  const allScenes = createScenes({ projectContent });
+  const ui = await loadTurnleafPanelModules(tmpDir);
+  const { panelStyle, historyStyle } = ui;
+  const allScenes = createScenes(ui);
   const scenes = sceneFilter ? allScenes.filter((s) => s.id === sceneFilter) : allScenes;
   if (!scenes.length) {
     throw new Error(`Unknown scene "${sceneFilter}". Available: ${allScenes.map((s) => s.id).join(', ')}`);
