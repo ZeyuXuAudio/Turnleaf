@@ -7,6 +7,7 @@ All notable user-facing changes to Turnleaf are listed here, newest first. The f
 ### Fixed
 
 - The Turnleaf overview opens on its own only in a workspace that holds `.tex` files, not in every new folder.
+- The added and removed line counts next to each file match the lines its diff marks: a changed line counts once as removed and once as added, however many edits it has, and a new line counts once.
 
 ## 0.10.0
 

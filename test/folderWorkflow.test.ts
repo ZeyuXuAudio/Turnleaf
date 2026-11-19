@@ -466,7 +466,7 @@ test('Undo this send takes a tracked edit, a reply and a resolve back from Overl
     assert.equal(r.fixture.requests.length, requests, 'The undo summary makes no request');
     const undo = await r.workflow.prepareUndo(sent.history);
     assert.deepEqual(planDifferences(standing.plan!.plan, undo.plan), []);
-    assert.deepEqual(undo.stays, []); assert.deepEqual(undo.files.map(file => [file.path, file.added, file.removed]), [['main.tex', 0, 2]]); assert.match(undo.files[0].note!, /Rejects the \d+ suggestions this Send made/);
+    assert.deepEqual(undo.stays, []); assert.deepEqual(undo.files.map(file => [file.path, file.added, file.removed]), [['main.tex', 1, 2]]); assert.match(undo.files[0].note!, /Rejects the \d+ suggestions this Send made/);
     assert.deepEqual([...new Set(undo.plan.operations!.map(operation => operation.kind))], ['rejectChange', 'reopen', 'deleteMessage']);
     const result = await r.sync.push(undo.plan, () => true, () => {});
     assert.equal(result.inspection.docs[0].text, before); assert.equal(result.inspection.docs[0].changes.length, 0, 'The suggestions are gone, none added');

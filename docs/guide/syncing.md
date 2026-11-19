@@ -13,7 +13,7 @@ Choose **Get latest** in the header (or run **Turnleaf: Get Latest (Preview)**).
 
 The preview appears in the **Review** tab under **Changes to local**:
 
-- Each file is listed with its added and removed line counts. Click a file to open a diff from **Local now** to **After merge**.
+- Each file is listed with its added and removed line counts, the lines its diff marks on each side; a changed line counts as one removed and one added. Click a file to open a diff from **Local now** to **After merge**.
 - Incoming comment changes are listed below the files, with their content before and after.
 - Previewing changes nothing: your source files stay as they are and the last synchronized version is not moved.
 
