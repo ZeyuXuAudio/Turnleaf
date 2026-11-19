@@ -28,8 +28,9 @@ const usage = `Usage: turnleaf <command> [options]
                                               Link the folder to a project and choose its files.
   pull      [--take-overleaf] [--dry-run]     Get latest: merge Overleaf's files and comments into the folder.
   status                                      Import review files and show what Send would do.
-  send      [--yes] [--dry-run] [--comments-only] [--require-track-changes] [--allow-deletes]
-                                              Send queued comments and saved edits to Overleaf.
+  send      [--yes] [--dry-run] [--comments-only] [--allow-untracked-edits] [--allow-deletes]
+                                              Send queued comments and saved edits to Overleaf. Edits are
+                                              refused unless Track Changes is on for this account.
 
 Common options:
   --folder DIR        Working folder (default: current folder).
@@ -40,7 +41,7 @@ Common options:
   --json              Print results as JSON.`;
 
 interface Options { [name: string]: string | boolean | undefined }
-const flags = new Set(['headless', 'all-sources', 'take-overleaf', 'dry-run', 'yes', 'comments-only', 'require-track-changes', 'allow-deletes', 'pictures', 'json', 'help']);
+const flags = new Set(['headless', 'all-sources', 'take-overleaf', 'dry-run', 'yes', 'comments-only', 'allow-untracked-edits', 'allow-deletes', 'pictures', 'json', 'help']);
 function parse(argv: string[]): { command?: string; positional: string[]; options: Options } {
   const positional: string[] = [], options: Options = {};
   for (let i = 0; i < argv.length; i++) {
@@ -116,12 +117,13 @@ function summary(plan: PushPlan) {
   };
 }
 /** The checks a headless Send applies on top of the core's own: refusals, never silent changes. */
-export function policyProblems(plan: PushPlan, options: { commentsOnly?: boolean; requireTrackChanges?: boolean; allowDeletes?: boolean }): string[] {
+export function policyProblems(plan: PushPlan, options: { commentsOnly?: boolean; allowUntrackedEdits?: boolean; allowDeletes?: boolean }): string[] {
   const problems: string[] = [], pictures = (plan.pictures ?? []).filter(sendsPicture);
   if (options.commentsOnly && (plan.files.length || pictures.length))
     problems.push(`--comments-only: the folder also has file changes (${[...plan.files.map(file => file.doc.path), ...pictures.map(picture => picture.path)].join(', ')}). Undo them or drop --comments-only.`);
-  if (options.requireTrackChanges && plan.files.some(file => !file.create) && plan.inspection.trackChanges !== true)
-    problems.push('--require-track-changes: Track Changes is off for this account in this project, so edits would change the text directly instead of arriving as suggestions. Turn Track Changes on for this account on Overleaf, or send comments only.');
+  // On by default: without a person reviewing the summary, edits must arrive as suggestions.
+  if (!options.allowUntrackedEdits && plan.files.some(file => !file.create) && plan.inspection.trackChanges !== true)
+    problems.push('Track Changes is off for this account in this project, so edits would change the text directly instead of arriving as suggestions. Turn Track Changes on for this account on Overleaf, send comments only, or pass --allow-untracked-edits.');
   if (!options.allowDeletes) {
     const deletions = [...(plan.operations ?? plan.pending).filter(draft => destructive.has(draft.kind)).map(draft => `${draft.kind} ${draft.id}`),
       ...plan.files.filter(file => file.remove).map(file => `delete ${file.doc.path}`), ...pictures.filter(picture => picture.kind === 'delete').map(picture => `delete ${picture.path}`)];
@@ -196,7 +198,7 @@ export async function run(argv: string[], io: Io): Promise<number> {
         case 'send': {
           const link = await readLink(folder), { reader, keep } = await connect(options, io, link.baseUrl), { state, sync, workflow, files } = await workflowFor(folder, link, reader, options);
           await refreshReviewFiles(files, state);
-          const plan = await workflow.prepareSend(), problems = policyProblems(plan, { commentsOnly: !!options['comments-only'], requireTrackChanges: !!options['require-track-changes'], allowDeletes: !!options['allow-deletes'] });
+          const plan = await workflow.prepareSend(), problems = policyProblems(plan, { commentsOnly: !!options['comments-only'], allowUntrackedEdits: !!options['allow-untracked-edits'], allowDeletes: !!options['allow-deletes'] });
           const planned = summary(plan);
           if (command === 'status' || options['dry-run']) { await keep(); print([pushReport(plan), ...problems.map(problem => `Refused: ${problem}`)].join('\n'), { dryRun: true, ...planned, problems }); return problems.length ? exitCodes.blocked : exitCodes.ok; }
           if (problems.length) throw new Blocked(problems.join('\n'), { ...planned, problems });

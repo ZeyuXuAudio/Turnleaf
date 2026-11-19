@@ -16,7 +16,7 @@ node dist/cli.js --help
 turnleaf sign-in                                   # once; saves the session
 turnleaf projects                                  # find the project ID
 turnleaf link 0123456789abcdef01234567 --all-sources
-turnleaf pull                                      # files and comments into the folder
+turnleaf pull                                      # first run: downloads the files; later: merges
 # ... an agent reads .turnleaf/projects/<key>/review/REVIEW.md,
 #     drops new comments into review/new/ and replies into threads/*.json ...
 turnleaf send --dry-run                            # what would be written
@@ -32,9 +32,9 @@ The review files are described in [Review files for AI agents and scripts](revie
 | `sign-in [--browser PATH] [--headless]` | Opens a Chromium-based browser at the Overleaf sign-in page and saves the session once you are signed in. |
 | `projects` | Lists the projects of the signed-in account. |
 | `link <project-id> --files a.tex,b.bib` or `--all-sources` | Links the folder to a project and chooses its `.tex`, `.bib`, `.sty` and `.cls` files. Writes `.turnleaf/cli.json`. |
-| `pull [--take-overleaf] [--dry-run]` | Get latest. Stops if a file changed both here and on Overleaf where they overlap; `--take-overleaf` uses Overleaf's version for those files. |
+| `pull [--take-overleaf] [--dry-run]` | Get latest. In an empty linked folder, it downloads the selected files (and, with `--pictures`, the pictures). Later it merges Overleaf's changes. Stops if a file changed both here and on Overleaf where they overlap; `--take-overleaf` uses Overleaf's version for those files. |
 | `status` | Imports the review files and prints what Send would write, with any refusal. |
-| `send [--yes] [--dry-run] [--comments-only] [--require-track-changes] [--allow-deletes]` | Send. Writes nothing without `--yes`. |
+| `send [--yes] [--dry-run] [--comments-only] [--allow-untracked-edits] [--allow-deletes]` | Send. Writes nothing without `--yes`. |
 
 Common options: `--folder DIR`, `--base-url URL` (or `TURNLEAF_BASE_URL`; default `https://www.overleaf.com`), `--session-file FILE` (or `TURNLEAF_SESSION_FILE`), `--pictures` to also synchronize pictures (off by default), and `--json` for machine-readable output.
 
@@ -43,7 +43,7 @@ Common options: `--folder DIR`, `--base-url URL` (or `TURNLEAF_BASE_URL`; defaul
 Send keeps all of its own checks: it reads Overleaf again, writes only what the plan lists, verifies the result and records it in Sync history. Without a person reviewing the outgoing summary, these options refuse a Send instead:
 
 - `--comments-only`: refuse when saved files or pictures changed, so only comments, replies and resolutions go out.
-- `--require-track-changes`: refuse file edits unless Track Changes is on for the signed-in account in this project. With it off, edits change the text directly instead of arriving as suggestions.
+- File edits are refused unless Track Changes is on for the signed-in account in this project, because with it off they change the text directly instead of arriving as suggestions. `--allow-untracked-edits` lifts this check.
 - Deleting a thread, a message, a created file or a picture is refused unless `--allow-deletes` is given.
 
 ## Exit codes

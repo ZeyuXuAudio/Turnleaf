@@ -43,7 +43,7 @@ test('cli: link, pull into an empty folder, queue a new comment from a file and 
   } finally { await c.close(); }
 });
 
-test('cli: --require-track-changes refuses edits when Track Changes is off, and sends nothing', async () => {
+test('cli: edits are refused while Track Changes is off unless --allow-untracked-edits is given', async () => {
   const c = await cli({ trackChanges: false });
   try {
     await c.exec('link', 'test-project', '--files', 'main.tex');
@@ -51,10 +51,13 @@ test('cli: --require-track-changes refuses edits when Track Changes is off, and 
     const text = await readFile(join(c.root, 'main.tex'), 'utf8');
     await writeFile(join(c.root, 'main.tex'), text.replace('Methods.', 'Methods and materials.'));
     const version = c.fixture.replies.modern[1];
-    const refused = await c.exec('send', '--yes', '--require-track-changes', '--json');
+    const refused = await c.exec('send', '--yes', '--json');
     assert.equal(refused.code, exitCodes.blocked);
     assert.match(refused.json().blocked, /Track Changes is off/);
     assert.equal(c.fixture.replies.modern[1], version);
+    const sent = await c.exec('send', '--yes', '--allow-untracked-edits');
+    assert.equal(sent.code, exitCodes.ok, sent.err);
+    assert(c.fixture.replies.modern[1] > version);
   } finally { await c.close(); }
 });
 
