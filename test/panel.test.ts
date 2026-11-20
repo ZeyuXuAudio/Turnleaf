@@ -309,6 +309,18 @@ test('a comment card shows its newest reply and unfolds every reply from the rep
   assert(!nodes.some(n => n.attribs['data-section'] === 'replies:t2'), 'A comment without replies has nothing to unfold');
 });
 
+test('each comment card has a Show more toggle for its first message, shown only once the text is cut', () => {
+  const rows = ['t1', 't2'].map((id, line) => ({ path: 'main.tex', docId: 'd', line: line + 1, excerpt: '', thread: { id, resolved: false, messages: [{ id: `${id}m`, author: 'Ada', text: 'A long comment.' }] }, anchor: { label: 'unchanged', ranges: [] } })) as any;
+  const html = projectContent(view({ rows, activePath: 'main.tex' })), nodes = elements(html);
+  const toggles = nodes.filter(n => n.attribs.class === 'text-toggle');
+  assert.deepEqual(toggles.map(n => n.attribs['data-text-toggle']), ['t1', 't2']);
+  assert(toggles.every(n => n.attribs.hidden !== undefined && n.attribs['aria-expanded'] === 'false' && text(n) === 'Show more'), 'Hidden until the page measures the text as cut');
+  assert.match(html, /class="card-text"[^>]*>A long comment\.<\/button>\s*<button type="button" class="text-toggle"/, 'Directly under the first message');
+  // The page measures the cut text, keeps the choice per thread and ties it to unfolding the replies.
+  const page = projectPanel(view({ rows, activePath: 'main.tex' }));
+  for (const part of ['function fitTexts()', "remembered['text:'+id]=full", "closest('.card-replies>summary')", 'document.fonts?.ready.then(fitTexts)']) assert(page.includes(part), part);
+});
+
 test('sign-in, live updates, first-sync choices and combined sends render their controls', () => {
   const signedOut = elements(projectContent(view({ connected: false, linked: false, files: [] })));
   assert.match(command(signedOut, 'signIn')!.children.map((c: any) => c.data ?? c.children?.[0]?.data).join(''), /Sign in with browser/);

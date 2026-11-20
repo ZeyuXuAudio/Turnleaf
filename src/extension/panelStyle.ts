@@ -105,7 +105,8 @@ button:focus-visible,summary:focus-visible,select:focus-visible,textarea:focus-v
 .meta{color:var(--dim);font-size:11px}
 .chip{display:inline-block;padding:0 5px;border-radius:3px;background:color-mix(in srgb,var(--fg) 9%,transparent);color:var(--dim);font-size:11px;font-variant-numeric:tabular-nums}
 .card-text{display:block;width:100%;margin:6px 0 0;padding:0;background:transparent;border:0;color:var(--vscode-foreground);text-align:left;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.45}
-body.sidebar .card-text{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden}
+body.sidebar .card-text{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden}body.sidebar .card-text.full{display:block;-webkit-line-clamp:none;overflow:visible}
+.text-toggle{display:block;margin:2px 0 0;padding:0;border:0;background:transparent;font-size:12px;color:var(--vscode-textLink-foreground);cursor:pointer}.text-toggle[hidden]{display:none}.text-toggle:hover{text-decoration:underline}
 .card-reply{display:block;width:100%;margin:6px 0 0;padding:0 0 0 8px;background:transparent;border:0;border-left:2px solid color-mix(in srgb,var(--fg) 45%,transparent);color:var(--vscode-foreground);text-align:left}
 .reply-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px}.reply-head strong{font-size:12px;font-weight:600;overflow-wrap:anywhere}
 .reply-text{display:block;margin-top:1px;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.45}

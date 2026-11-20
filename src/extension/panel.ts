@@ -296,6 +296,7 @@ export function projectContent(view: ProjectView, surface: Surface = 'sidebar'):
       <div class="card-head"><span class="avatar">${escape(initials(first?.author ?? '?'))}</span><button type="button" class="card-main" data-id="${escape(row.thread.id)}" aria-pressed="${view.selectedThread === row.thread.id}"><strong>${escape(first?.author ?? 'Unknown author')}</strong><span class="meta">${escape(when(first?.timestamp))}${when(first?.timestamp) ? ' · ' : ''}${lineChip(row)}</span></button>${resolveButton(row)}</div>
       ${goneText(row) ? `<p class="card-quote gone" title="The text this comment was on">${escape(goneText(row))}</p>` : ''}
       <button type="button" class="card-text" data-id="${escape(row.thread.id)}" tabindex="-1">${escape(first?.text ?? '')}</button>
+      <button type="button" class="text-toggle" data-text-toggle="${escape(row.thread.id)}" aria-expanded="false" hidden>Show more</button>
       ${latestReply}
       ${foot}
       ${surface === 'sidebar' && view.selectedThread === row.thread.id ? `${first && own(first) ? `<div class="card-tools">${messageActions(row, first)}</div>` : ''}${replyBox(row.thread.id)}` : ''}
@@ -365,31 +366,36 @@ const remembered=api.getState()||{};
 // A list the user hid opens again once for each new reason to look (data-force), then follows the user's toggle.
 function restoreDetails(){document.querySelectorAll('details[data-section]').forEach(d=>{const s=d.dataset.section,f=d.dataset.force;if(f!==undefined){if(f&&remembered['force:'+s]!==f)remembered[s]=true;remembered['force:'+s]=f;}if(s in remembered)d.open=remembered[s];});api.setState(remembered);}
 restoreDetails();
+// A first message cut to its lines offers Show more; the choice is kept per thread. Unfolding a
+// card's replies shows its first message in full as well, and folding them cuts it again.
+function fitTexts(){if(!document.body.classList.contains('sidebar'))return;document.querySelectorAll('[data-text-toggle]').forEach(b=>{const text=b.closest('.card')?.querySelector('.card-text');if(!text)return;const full=!!remembered['text:'+b.dataset.textToggle];text.classList.toggle('full',full);b.textContent=full?'Show less':'Show more';b.setAttribute('aria-expanded',full);b.hidden=!full&&text.scrollHeight<=text.clientHeight+1;});}
+function toggleText(id,full){remembered['text:'+id]=full;api.setState(remembered);fitTexts();}
+window.addEventListener('resize',fitTexts);document.fonts?.ready.then(fitTexts);
 // The chosen view is kept separately for set-up and not-yet-set-up projects, so finishing setup opens Review.
 const tabScroll={};
 function tabBar(){return document.querySelector('.tabs');}
 function tabKey(bar){return 'tab:'+bar.dataset.configured;}
-function showTab(id,focus){document.querySelectorAll('[data-tab]').forEach(t=>{const on=t.dataset.tab===id;t.setAttribute('aria-selected',on);t.tabIndex=on?0:-1;if(on&&focus)t.focus();});document.querySelectorAll('[data-pane]').forEach(p=>{p.hidden=p.dataset.pane!==id;});}
+function showTab(id,focus){document.querySelectorAll('[data-tab]').forEach(t=>{const on=t.dataset.tab===id;t.setAttribute('aria-selected',on);t.tabIndex=on?0:-1;if(on&&focus)t.focus();});document.querySelectorAll('[data-pane]').forEach(p=>{p.hidden=p.dataset.pane!==id;});fitTexts();}
 function selectTab(id,focus){const bar=tabBar();if(!bar)return;const key=tabKey(bar);tabScroll[remembered[key]||bar.dataset.firstTab]=window.scrollY;remembered[key]=id;api.setState(remembered);showTab(id,focus);window.scrollTo(0,tabScroll[id]||0);}
 // A new preview or a thread opened from the editor is shown in Review, whichever view is open.
 function restoreTab(){const bar=tabBar();if(!bar)return;const key=tabKey(bar),preview=bar.dataset.showPreview,thread=bar.dataset.showThread;if((preview&&preview!==remembered.seenPreview)||(thread&&thread!==remembered.seenThread))remembered[key]='review';remembered.seenPreview=preview;remembered.seenThread=thread;api.setState(remembered);showTab(remembered[key]||bar.dataset.firstTab);}
 restoreTab();
 function reply(id){const box=document.querySelector('textarea[data-reply="'+CSS.escape(id)+'"]'),text=box?.value.trim();if(!text){box?.focus();return;}if(text.length>20000){box.setCustomValidity('Keep replies under 20,000 characters.');box.reportValidity();return;}api.postMessage({command:'reply',value:id,text});box.value='';}
 document.addEventListener('toggle',e=>{if(e.target.matches('details[data-section]')){remembered[e.target.dataset.section]=e.target.open;api.setState(remembered);}},true);
-document.addEventListener('click',e=>{const b=e.target.closest('button');if(b&&b.closest('summary'))e.preventDefault();if(!b||b.disabled||e.detail>1)return;if(b.dataset.tab)selectTab(b.dataset.tab);else if(b.dataset.command==='reply')reply(b.dataset.value);else if(b.dataset.command)api.postMessage({command:b.dataset.command,path:b.dataset.path,preview:b.dataset.preview,value:b.dataset.value,message:b.dataset.message});else if(b.dataset.id)api.postMessage({id:b.dataset.id});});
+document.addEventListener('click',e=>{const replies=e.target.closest('.card-replies>summary')?.parentElement;if(replies)toggleText(replies.dataset.section.slice(8),!replies.open);const b=e.target.closest('button');if(b&&b.closest('summary'))e.preventDefault();if(!b||b.disabled||e.detail>1)return;if(b.dataset.textToggle)toggleText(b.dataset.textToggle,b.getAttribute('aria-expanded')!=='true');else if(b.dataset.tab)selectTab(b.dataset.tab);else if(b.dataset.command==='reply')reply(b.dataset.value);else if(b.dataset.command)api.postMessage({command:b.dataset.command,path:b.dataset.path,preview:b.dataset.preview,value:b.dataset.value,message:b.dataset.message});else if(b.dataset.id)api.postMessage({id:b.dataset.id});});
 document.addEventListener('keydown',e=>{const t=e.target;if(t.matches?.('[data-tab]')&&(e.key==='ArrowLeft'||e.key==='ArrowRight')){const all=[...document.querySelectorAll('[data-tab]')];e.preventDefault();selectTab(all[(all.indexOf(t)+(e.key==='ArrowRight'?1:all.length-1))%all.length].dataset.tab,true);return;}if(t.matches?.('textarea[data-reply]')&&e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();reply(t.dataset.reply);}});
 document.addEventListener('input',e=>{if(e.target.matches('textarea[data-reply]'))e.target.setCustomValidity('');});
 document.addEventListener('change',e=>{if(e.target.matches('[data-interval]'))api.postMessage({command:'setCheckInterval',value:e.target.value==='live'?'live':Number(e.target.value)});});
 window.addEventListener('message',e=>{
  if(e.data?.type!=='render')return;
- const focused=document.hasFocus(),active=document.activeElement,key=active?.dataset?.command,id=active?.dataset?.id,path=active?.dataset?.path,value=active?.dataset?.value,interval=active?.hasAttribute('data-interval'),activeTab=active?.dataset?.tab,section=active?.tagName==='SUMMARY'?active.parentElement?.dataset?.section:undefined,scroll=window.scrollY,detailScroll=document.querySelector('.detail-col')?.scrollTop;
+ const focused=document.hasFocus(),active=document.activeElement,textToggle=active?.dataset?.textToggle,key=active?.dataset?.command,id=active?.dataset?.id,path=active?.dataset?.path,value=active?.dataset?.value,interval=active?.hasAttribute('data-interval'),activeTab=active?.dataset?.tab,section=active?.tagName==='SUMMARY'?active.parentElement?.dataset?.section:undefined,scroll=window.scrollY,detailScroll=document.querySelector('.detail-col')?.scrollTop;
  // Unsent reply text, its caret and focus survive re-rendering.
  const typed=[...document.querySelectorAll('textarea[data-reply]')].filter(t=>t.value).map(t=>({id:t.dataset.reply,value:t.value,active:t===active,start:t.selectionStart,end:t.selectionEnd,rows:t.rows}));
  document.getElementById('project').innerHTML=e.data.html;restoreDetails();restoreTab();
  for(const t of typed){const box=document.querySelector('textarea[data-reply="'+CSS.escape(t.id)+'"]');if(!box)continue;box.value=t.value;if(t.active&&focused){box.focus({preventScroll:true});box.setSelectionRange(t.start,t.end);}}
  const detail=document.querySelector('.detail-col');if(detail&&detailScroll!==undefined)detail.scrollTop=detailScroll;
  if(typed.some(t=>t.active))return window.scrollTo(0,scroll);
- const next=activeTab?document.querySelector('[data-tab="'+activeTab+'"]'):section?[...document.querySelectorAll('details[data-section]')].find(d=>d.dataset.section===section)?.querySelector('summary'):interval?document.querySelector('[data-interval]'):[...document.querySelectorAll('button')].find(b=>id?b.dataset.id===id:key&&b.dataset.command===key&&b.dataset.path===path&&b.dataset.value===value);
+ const next=textToggle?document.querySelector('[data-text-toggle="'+CSS.escape(textToggle)+'"]'):activeTab?document.querySelector('[data-tab="'+activeTab+'"]'):section?[...document.querySelectorAll('details[data-section]')].find(d=>d.dataset.section===section)?.querySelector('summary'):interval?document.querySelector('[data-interval]'):[...document.querySelectorAll('button')].find(b=>id?b.dataset.id===id:key&&b.dataset.command===key&&b.dataset.path===path&&b.dataset.value===value);
  if(focused)next?.focus({preventScroll:true});window.scrollTo(0,scroll);
 });
 api.postMessage({ready:true});

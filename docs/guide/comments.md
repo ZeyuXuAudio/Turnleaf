@@ -13,7 +13,7 @@ The **Review** tab in the sidebar lists comments and suggestions as cards, group
 
 Each comment card shows the author, the date, the line (for example **L42**) and a button to resolve or reopen the thread. Badges appear only for exceptions: **Pending send**, **Resolved**, a comment whose text was deleted, or a local status such as addressed or declined. A comment whose text was deleted on Overleaf shows **near L42** and the text it was on; the thread is kept, and you can reply, resolve or delete it as usual.
 
-Under the first message, a card with replies shows the newest reply: its author, its date and the first two lines of its text. Click the reply count (for example **2 replies**) to unfold every reply in full inside the card, oldest first, and click it again to fold them. Each card keeps its folded or unfolded state when the list refreshes.
+The sidebar cuts a long first message to three lines; click **Show more** under it to read it in full, and **Show less** to cut it again. Under the first message, a card with replies shows the newest reply: its author, its date and the first two lines of its text. Click the reply count (for example **2 replies**) to unfold every reply in full inside the card, oldest first, together with the whole first message; click it again to fold them. Each card keeps these choices when the list refreshes.
 
 Click a card to select it and open its thread in the editor. The selected card has a reply box (**⌘Enter** / **Ctrl+Enter** saves the reply) and, for your own first message, edit and delete buttons.
 
