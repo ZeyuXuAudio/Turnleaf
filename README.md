@@ -126,7 +126,7 @@ For scripts and AI agents, `turnleaf` runs the same workflow without an editor. 
 
 ```sh
 npm ci --ignore-scripts && npm run build:cli      # builds dist/cli.js
-node dist/cli.js sign-in                          # or save a session cookie by hand
+node dist/cli.js sign-in                          # or save the session cookie by hand (below)
 node dist/cli.js link <project-id> --folder paper --all-sources
 node dist/cli.js pull --folder paper              # first run downloads the files
 # ... an agent queues comments in the review files ...
@@ -134,7 +134,7 @@ node dist/cli.js send --folder paper --dry-run    # what would be written
 node dist/cli.js send --folder paper --yes        # write it
 ```
 
-Every command can print JSON (`--json`) and returns exit codes a script can act on. See [Command line for scripts and agents](docs/guide/command-line.md).
+If `sign-in` cannot open a browser, for example because of an organization's browser policy, [save the session cookie by hand](docs/guide/command-line.md#save-the-session-by-hand). Every command can print JSON (`--json`) and returns exit codes a script can act on. See [Command line for scripts and agents](docs/guide/command-line.md).
 
 ## Documentation
 
