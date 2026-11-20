@@ -93,12 +93,13 @@ test('cli: --take-overleaf resolves a conflict with Overleaf\'s text; without it
   try {
     await c.exec('link', 'test-project', '--files', 'main.tex');
     await c.exec('pull');
-    await writeFile(join(c.root, 'main.tex'), (await readFile(join(c.root, 'main.tex'), 'utf8')).replace('Results.', 'Local results.'));
-    c.fixture.replies.modern[0].content = c.fixture.replies.modern[0].content.replace('Results.', 'Remote results.'); c.fixture.replies.modern[1]++;
+    // The same number changed differently on both sides, as in folderWorkflow.test.ts.
+    await writeFile(join(c.root, 'main.tex'), (await readFile(join(c.root, 'main.tex'), 'utf8')).replace('0.64', '0.60'));
+    c.fixture.replies.modern[0].content = c.fixture.replies.modern[0].content.replace('0.64', '0.58'); c.fixture.replies.modern[1]++;
     assert.equal((await c.exec('pull')).code, exitCodes.blocked);
-    assert.match(await readFile(join(c.root, 'main.tex'), 'utf8'), /Local results/);
+    assert.match(await readFile(join(c.root, 'main.tex'), 'utf8'), /0\.60/);
     assert.equal((await c.exec('pull', '--take-overleaf')).code, exitCodes.ok);
-    assert.match(await readFile(join(c.root, 'main.tex'), 'utf8'), /Remote results/);
+    assert.match(await readFile(join(c.root, 'main.tex'), 'utf8'), /0\.58/);
   } finally { await c.close(); }
 });
 
