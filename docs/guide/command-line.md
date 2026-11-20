@@ -58,4 +58,16 @@ Send keeps all of its own checks: it reads Overleaf again, writes only what the 
 
 ## The session
 
-The session cookie is saved with owner-only permissions in `~/.config/turnleaf/session-<server>` (or under `XDG_CONFIG_HOME`), and the browser profile used to sign in next to it. When Overleaf renews the cookie, the new one is saved. `TURNLEAF_COOKIE` supplies a cookie for one run without saving it. Treat the session file like a password, and prefer a separate Overleaf account for automated reviews, so its comments are clearly labeled.
+The session cookie is saved with owner-only permissions in `~/.config/turnleaf/session-<server>` (or under `XDG_CONFIG_HOME`), and the browser profile used to sign in next to it. When Overleaf renews the cookie, the new one is saved. `TURNLEAF_COOKIE` supplies a cookie for one run without saving it.
+
+### Save the session by hand
+
+When `sign-in` cannot open a browser (for example because an organization's policy blocks it), copy the cookie from any browser where you are signed in to Overleaf with the account to use: open the developer tools, then **Storage** (Safari, Firefox) or **Application** (Chrome) → **Cookies** → `https://www.overleaf.com`, and copy the complete value of `overleaf_session2`, without decoding it. With the value on the clipboard (macOS):
+
+```sh
+mkdir -p ~/.config/turnleaf && chmod 700 ~/.config/turnleaf
+pbpaste > ~/.config/turnleaf/session-3f828e58a73ebf93 && chmod 600 ~/.config/turnleaf/session-3f828e58a73ebf93
+turnleaf projects                                  # lists your projects if the session works
+```
+
+`session-3f828e58a73ebf93` is the file name for `https://www.overleaf.com`. For another server, pass `--session-file FILE` (or set `TURNLEAF_SESSION_FILE`) and save the cookie there. Do not sign out in that browser afterwards: signing out ends the session on Overleaf, and the saved cookie stops working. When it expires, commands exit with code 4; save a new cookie the same way. Treat the session file like a password, and prefer a separate Overleaf account for automated reviews, so its comments are clearly labeled.
