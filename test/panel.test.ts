@@ -291,6 +291,24 @@ test('each control appears once per surface and reply counts read naturally', ()
   assert.equal(elements(projectContent(view(), 'panel')).filter(n => n.attribs['data-command'] === 'checkRemote').length, 1, 'The larger view has no title bar, so its footer keeps the check');
 });
 
+test('a comment card shows its newest reply and unfolds every reply from the reply count', () => {
+  const row = (id: string, messages: { id: string; author: string; text: string }[]) => ({ path: 'main.tex', docId: 'd', line: 1, excerpt: '', thread: { id, resolved: false, messages }, anchor: { label: 'unchanged', ranges: [] } });
+  const rows = [row('t1', [{ id: 'm0', author: 'Ada', text: 'Cite this.' }, { id: 'm1', author: 'Bo', text: 'Older reply' }, { id: 'm2', author: 'Cy', text: 'Newest reply' }]),
+    row('t2', [{ id: 'm3', author: 'Ada', text: 'Alone' }]), row('t3', [{ id: 'm4', author: 'Ada', text: 'Typo?' }, { id: 'draft:r', author: 'You', text: 'Fixed' }])] as any;
+  const html = projectContent(view({ rows, activePath: 'main.tex' })), nodes = elements(html);
+  // Outside the folded list: the newest reply only.
+  const preview = nodes.filter(n => n.attribs.class === 'card-reply' && (n.parent as any)?.name === 'article');
+  assert.deepEqual(preview.map(n => n.attribs['data-id']), ['t1', 't3'], 'Only threads with replies show one');
+  assert.match(html, /<\/button>\s*<button type="button" class="card-reply"[^>]*><span class="reply-head"><strong>Cy<\/strong>[\s\S]*?Newest reply/);
+  assert.match(html, /<strong>You<\/strong>[^]*?Pending send<\/span><\/span><span class="reply-text">Fixed/);
+  // The reply count unfolds all replies in order; the folded state is remembered per thread.
+  const folds = nodes.filter(n => n.name === 'details' && n.attribs.class === 'card-replies');
+  assert.deepEqual(folds.map(n => n.attribs['data-section']), ['replies:t1', 'replies:t3']);
+  assert(folds.every(n => n.attribs.open === undefined), 'Replies start folded');
+  assert.match(html, /data-section="replies:t1"><summary><span class="meta reply-count">2 replies<\/span><\/summary><div class="reply-list">[\s\S]*?Older reply[\s\S]*?Newest reply[\s\S]*?<\/div><\/details>/);
+  assert(!nodes.some(n => n.attribs['data-section'] === 'replies:t2'), 'A comment without replies has nothing to unfold');
+});
+
 test('sign-in, live updates, first-sync choices and combined sends render their controls', () => {
   const signedOut = elements(projectContent(view({ connected: false, linked: false, files: [] })));
   assert.match(command(signedOut, 'signIn')!.children.map((c: any) => c.data ?? c.children?.[0]?.data).join(''), /Sign in with browser/);

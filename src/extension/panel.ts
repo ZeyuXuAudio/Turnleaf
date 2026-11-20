@@ -285,12 +285,19 @@ export function projectContent(view: ProjectView, surface: Surface = 'sidebar'):
     ? `<span class="chip" title="Where the text was before it was deleted">near L${row.line}</span>` : `<span class="chip">L${row.line}</span>`;
   const goneText = (row: ReviewRow) => textGone(row.anchor.label) && row.excerpt ? row.excerpt + (row.excerpt.length >= 80 ? '…' : '') : '';
   const threadCard = (row: ReviewRow) => {
-    const first = row.thread.messages[0], replies = row.thread.messages.length - 1;
+    const first = row.thread.messages[0], replies = row.thread.messages.length - 1, latest = replies ? row.thread.messages[replies] : undefined;
+    const replyItem = (message: ReviewRow['thread']['messages'][number]) => `<button type="button" class="card-reply" data-id="${escape(row.thread.id)}" tabindex="-1"><span class="reply-head"><strong>${escape(message.author)}</strong><span class="meta">${escape(when(message.timestamp))}</span>${message.id?.startsWith('draft:') ? '<span class="badge pending">Pending send</span>' : ''}</span><span class="reply-text">${escape(message.text)}</span></button>`;
+    // The newest reply under the first message, so the card shows where the discussion stands;
+    // the reply count unfolds every reply in full in its place.
+    const latestReply = latest ? replyItem(latest) : '';
+    const foot = replies ? `<details class="card-replies" data-section="replies:${escape(row.thread.id)}"><summary><span class="meta reply-count">${plural(replies, 'reply', 'replies')}</span>${badges(row)}</summary><div class="reply-list">${row.thread.messages.slice(1).map(replyItem).join('')}</div></details>`
+      : badges(row) ? `<div class="card-foot">${badges(row)}</div>` : '';
     return `<article class="card${view.selectedThread === row.thread.id ? ' selected' : ''}${row.thread.resolved ? ' resolved' : ''}">
       <div class="card-head"><span class="avatar">${escape(initials(first?.author ?? '?'))}</span><button type="button" class="card-main" data-id="${escape(row.thread.id)}" aria-pressed="${view.selectedThread === row.thread.id}"><strong>${escape(first?.author ?? 'Unknown author')}</strong><span class="meta">${escape(when(first?.timestamp))}${when(first?.timestamp) ? ' · ' : ''}${lineChip(row)}</span></button>${resolveButton(row)}</div>
       ${goneText(row) ? `<p class="card-quote gone" title="The text this comment was on">${escape(goneText(row))}</p>` : ''}
       <button type="button" class="card-text" data-id="${escape(row.thread.id)}" tabindex="-1">${escape(first?.text ?? '')}</button>
-      ${replies || badges(row) ? `<div class="card-foot">${replies ? `<span class="meta">${plural(replies, 'reply', 'replies')}</span>` : ''}${badges(row)}</div>` : ''}
+      ${latestReply}
+      ${foot}
       ${surface === 'sidebar' && view.selectedThread === row.thread.id ? `${first && own(first) ? `<div class="card-tools">${messageActions(row, first)}</div>` : ''}${replyBox(row.thread.id)}` : ''}
     </article>`;
   };

@@ -2,6 +2,12 @@
 
 All notable user-facing changes to Turnleaf are listed here, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Added
+
+- Each comment card in the sidebar shows the thread's newest reply under the first message: author, time and the first two lines of its text. Clicking the reply count unfolds every reply in full inside the card, and the card remembers whether it is unfolded. A reply not yet sent is marked **Pending send**.
+
 ## 0.10.0
 
 ### Changed
