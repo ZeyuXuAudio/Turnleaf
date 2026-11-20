@@ -2,7 +2,7 @@
   "name": "turnleaf",
   "displayName": "Turnleaf",
   "description": "Review Overleaf comments and suggestions in VS Code or Cursor, merge incoming edits, and send reviewed changes back to Overleaf.",
-  "version": "0.10.2",
+  "version": "0.10.3",
   "publisher": "zeyuxu",
   "icon": "media/brand/turnleaf-icon.png",
   "galleryBanner": {

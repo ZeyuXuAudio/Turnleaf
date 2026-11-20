@@ -33,7 +33,7 @@ To run the extension from source, open the repository in VS Code or Cursor and p
 | `npm run test:fixture` | Starts a local fixture server and prints a workspace path and a fictional cookie, for trying the extension by hand. |
 | `npm run test:live` | Read-only probe against your real Overleaf account in a reusable editor profile (`TURNLEAF_LIVE_PROFILE` to move it). Needs a one-time sign-in. |
 | `npm run test:ce` | Starts Overleaf Community Edition in Docker, seeds throwaway projects and checks the extension against them, through a test-only adapter for the comment-threads route that stock Community Edition lacks. Needs Docker and about 4 GB of disk. `-- --help` lists the options. |
-| `npm run test:installed` | Installs the packaged VSIX (run `npm run package` first) into a disposable VS Code profile and checks it in production mode, with a fictional session. **Currently out of date:** it still expects the former sign-in and state layout and does not pass. |
+| `npm run test:installed` | Installs the packaged VSIX (run `npm run package` first) into a disposable VS Code profile and checks it in production mode, with a fictional session. It is interactive: when the test window asks for the session cookie, enter `fictional-fixture-session`. |
 
 `npm test`, `test:editor`, `test:fixture` and `test:installed` first run `scripts/fetch-reference.mjs`. It downloads a few files of Overleaf's own editing code, pinned to a commit and checked by SHA-256, into the git-ignored `test/reference/` folder. Some tests compare Turnleaf with that code. It is licensed under the AGPL-3.0, used only for testing, and is neither part of this repository nor bundled with the extension; the build fails if it reaches the bundle.
 

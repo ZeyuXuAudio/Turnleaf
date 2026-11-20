@@ -2,13 +2,18 @@
 
 All notable user-facing changes to Turnleaf are listed here, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## Unreleased
+## 0.10.3
 
 ### Added
 
 - Accept or reject the suggestions in the editor selection: **Turnleaf: Accept Suggestions in Selection on Send** and **Turnleaf: Reject Suggestions in Selection on Send**, in the editor's context menu and the Command Palette. As in Overleaf's review panel, they decide the suggested insertions that overlap the selection and the suggested deletions inside it.
 - Accept or reject one author's suggestions in a file: **By author…** next to **Accept all** in the sidebar when a file has suggestions from two or more authors, and **Turnleaf: Accept Suggestions by Author in File on Send** / **Reject…** in the Command Palette.
 - **Accept All Suggestions in File on Send** and **Reject All Suggestions in File on Send** are now in the Command Palette, for the file you are editing.
+
+### Fixed
+
+- **Sign in with browser** no longer waits in vain when a sign-in window from an earlier attempt is still running, for example after the editor restarted. Turnleaf says so and offers to close that window. It also closes its sign-in window when the editor stops.
+- **Sign in with browser** no longer waits for 10 minutes when the browser ignores Turnleaf's connection, as a managed Chrome does when an administrator turned remote debugging off. Turnleaf names the policy, closes the window and offers **Paste session cookie**. The Turnleaf output channel now shows the sign-in's progress (connected, Overleaf page reached, session not accepted yet), never the cookie, and a session Overleaf did not accept at first is checked again every 15 seconds.
 
 ## 0.10.2
 
@@ -35,8 +40,6 @@ All notable user-facing changes to Turnleaf are listed here, newest first. The f
 
 ### Fixed
 
-- **Sign in with browser** no longer waits in vain when a sign-in window from an earlier attempt is still running, for example after the editor restarted. Turnleaf says so and offers to close that window. It also closes its sign-in window when the editor stops.
-- **Sign in with browser** no longer waits for 10 minutes when the browser ignores Turnleaf's connection, as a managed Chrome does when an administrator turned remote debugging off. Turnleaf names the policy, closes the window and offers **Paste session cookie**. The Turnleaf output channel now shows the sign-in's progress (connected, Overleaf page reached, session not accepted yet), never the cookie, and a session Overleaf did not accept at first is checked again every 15 seconds.
 - The Turnleaf overview opens on its own only in a workspace that holds `.tex` files, not in every new folder.
 - The added and removed line counts next to each file match the lines its diff marks: a changed line counts once as removed and once as added, however many edits it has, and a new line counts once.
 
