@@ -315,6 +315,31 @@
         "category": "Turnleaf"
       },
       {
+        "command": "turnleaf.acceptSelectionChanges",
+        "title": "Accept Suggestions in Selection on Send",
+        "category": "Turnleaf"
+      },
+      {
+        "command": "turnleaf.rejectSelectionChanges",
+        "title": "Reject Suggestions in Selection on Send",
+        "category": "Turnleaf"
+      },
+      {
+        "command": "turnleaf.acceptAuthorChanges",
+        "title": "Accept Suggestions by Author in File on Send",
+        "category": "Turnleaf"
+      },
+      {
+        "command": "turnleaf.rejectAuthorChanges",
+        "title": "Reject Suggestions by Author in File on Send",
+        "category": "Turnleaf"
+      },
+      {
+        "command": "turnleaf.decideAuthorChanges",
+        "title": "Decide Suggestions by Author in File on Send",
+        "category": "Turnleaf"
+      },
+      {
         "command": "turnleaf.deleteThread",
         "title": "Delete Thread on Send",
         "category": "Turnleaf",
@@ -528,11 +553,7 @@
           "when": "false"
         },
         {
-          "command": "turnleaf.acceptAllChanges",
-          "when": "false"
-        },
-        {
-          "command": "turnleaf.rejectAllChanges",
+          "command": "turnleaf.decideAuthorChanges",
           "when": "false"
         }
       ],
@@ -601,6 +622,16 @@
           "command": "turnleaf.newComment",
           "when": "editorHasSelection && resourceScheme == file",
           "group": "overleaf@1"
+        },
+        {
+          "command": "turnleaf.acceptSelectionChanges",
+          "when": "editorHasSelection && resourceScheme == file",
+          "group": "overleaf@2"
+        },
+        {
+          "command": "turnleaf.rejectSelectionChanges",
+          "when": "editorHasSelection && resourceScheme == file",
+          "group": "overleaf@3"
         }
       ],
       "turnleaf.threadMore": [

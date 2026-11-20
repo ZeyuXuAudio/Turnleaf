@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { normalizeDoc } from '../src/core/docState';
-import { Decision, findSuggestion, historyDecisionOp, rejectLocally, shareJsRejectOp, suggestionRef, visibleAfter } from '../src/core/suggestions';
+import { Decision, findSuggestion, historyDecisionOp, rejectLocally, shareJsRejectOp, suggestionAuthors, suggestionRef, suggestionsInRange, visibleAfter } from '../src/core/suggestions';
 import { ProjectStore, CommentDraft } from '../src/core/projectStore';
 import { ReviewWorkflow, SyncService, remoteTexts } from '../src/core/folderWorkflow';
 import { OverleafReader } from '../src/core/overleaf';
@@ -30,6 +30,22 @@ test('suggestion decisions survive author-name resolution without confusing two 
   const namedRef = suggestionRef(doc.changes[0]);
   doc.changes[0].authorId = 'different-reviewer';
   assert.equal(findSuggestion(doc, namedRef), -1, 'A shared display name is not a shared identity');
+});
+
+test('a selection takes the insertions it overlaps and the deletions inside it, edges included', () => {
+  const s = (id: string, kind: 'insert' | 'delete', pos: number, text: string) => ({ id, kind, pos, text });
+  const changes = [s('before', 'insert', 0, 'ab'), s('overlapStart', 'insert', 3, 'cdef'), s('inside', 'insert', 8, 'g'), s('overlapEnd', 'insert', 11, 'hijk'),
+    s('after', 'insert', 15, 'l'), s('deleteAtStart', 'delete', 5, 'x'), s('deleteAtEnd', 'delete', 12, 'y'), s('deleteOutside', 'delete', 13, 'z')];
+  const ids = (from: number, to: number) => suggestionsInRange(changes, from, to).map(c => c.id);
+  assert.deepEqual(ids(5, 12), ['overlapStart', 'inside', 'overlapEnd', 'deleteAtStart', 'deleteAtEnd']);
+  assert.deepEqual(ids(2, 3), [], 'An insertion that only touches an edge is outside');
+  assert.deepEqual(ids(0, 20).length, changes.length);
+});
+
+test('suggestions group by author ID, keeping two authors who share a name apart', () => {
+  const s = (id: string, author: string, authorId?: string) => ({ id, author, ...authorId && { authorId } });
+  const authors = suggestionAuthors([s('1', 'Ada', 'u1'), s('2', 'Ben', 'u2'), s('3', 'Ada', 'u1'), s('4', 'Ada', 'u3'), s('5', 'Old'), s('6', 'Old')]);
+  assert.deepEqual(authors.map(a => [a.key, a.name, a.suggestions.map(x => x.id)]), [['u1', 'Ada', ['1', '3']], ['u2', 'Ben', ['2']], ['u3', 'Ada', ['4']], ['Old', 'Old', ['5', '6']]]);
 });
 
 test('history-ot decisions match the pinned Overleaf editor core for every kind', () => {

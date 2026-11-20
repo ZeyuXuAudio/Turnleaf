@@ -396,6 +396,11 @@ test('highlight switch, Accept all / Reject all per file, and editing your own c
   assert.equal(command(two, 'acceptAllChanges')?.attribs['data-path'], 'main.tex'); assert(command(two, 'rejectAllChanges'));
   assert.match(projectContent(view({ activePath: 'main.tex', suggestionRows: [s('a', 1, 'accept'), s('b', 2, 'accept')] })), /Undo accept all/);
   assert(!command(elements(projectContent(view({ activePath: 'main.tex', suggestionRows: [s('a', 1)] }))), 'acceptAllChanges'), 'One suggestion needs no bulk action');
+  assert(!command(two, 'decideAuthorChanges'), 'One author needs no choice of author');
+  const twoAuthors = elements(projectContent(view({ activePath: 'main.tex', suggestionRows: [s('a', 1), { ...s('b', 2), author: 'Other' }] })));
+  assert.equal(command(twoAuthors, 'decideAuthorChanges')?.attribs['data-path'], 'main.tex');
+  const sameName = elements(projectContent(view({ activePath: 'main.tex', suggestionRows: [{ ...s('a', 1), authorId: 'u1' }, { ...s('b', 2), authorId: 'u2' }] })));
+  assert(command(sameName, 'decideAuthorChanges'), 'Two accounts with one name are two authors');
   const thread = { id: 't1', resolved: false, messages: [{ id: 'm1', author: 'Me', authorId: 'u1', text: 'Mine' }, { id: 'm2', author: 'R', authorId: 'u2', text: 'Theirs' }, { id: 'draft:x', author: 'You', authorId: 'u1', text: 'Pending' }] };
   const row = { path: 'main.tex', docId: 'd', line: 3, excerpt: '', thread, anchor: { label: 'unchanged', ranges: [] } } as any;
   const card = elements(projectContent(view({ rows: [row], activePath: 'main.tex', selectedThread: 't1', userId: 'u1' })));

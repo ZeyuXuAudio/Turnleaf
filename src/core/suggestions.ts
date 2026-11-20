@@ -20,6 +20,28 @@ const same = (s: Suggestion | SuggestionRef, ref: SuggestionRef) => s.kind === r
 /** The same suggestion, possibly read at another version. */
 export const sameSuggestion = (a: SuggestionRef, b: SuggestionRef) => same(a, b);
 
+type Placed = Pick<Suggestion, 'kind' | 'pos' | 'text'>;
+/**
+ * The suggestions a selection from `from` to `to` touches, as Overleaf's review
+ * panel decides them: an insertion that overlaps the selection, and a deletion
+ * whose place lies inside it, the selection's edges included.
+ */
+export function suggestionsInRange<T extends Placed>(changes: T[], from: number, to: number): T[] {
+  return changes.filter(s => s.kind === 'insert' ? s.pos < to && s.pos + s.text.length > from : s.pos >= from && s.pos <= to);
+}
+/** One author's identity: the user ID when Overleaf sent one, the name otherwise. */
+export const authorKey = (s: Pick<Suggestion, 'author' | 'authorId'>) => s.authorId ?? s.author;
+export interface SuggestionAuthor<T> { key: string; name: string; suggestions: T[]; }
+/** The authors of `changes` in order of their first suggestion, each with their suggestions. */
+export function suggestionAuthors<T extends Pick<Suggestion, 'author' | 'authorId'>>(changes: T[]): SuggestionAuthor<T>[] {
+  const authors = new Map<string, SuggestionAuthor<T>>();
+  for (const s of changes) {
+    const key = authorKey(s), known = authors.get(key);
+    if (known) known.suggestions.push(s); else authors.set(key, { key, name: s.author, suggestions: [s] });
+  }
+  return [...authors.values()];
+}
+
 /** The suggestion's index in `doc.changes`, or -1. A sharejs ID is stable; otherwise the nearest identical suggestion. */
 export function findSuggestion(doc: DocState, ref: SuggestionRef): number {
   const byId = doc.changes.findIndex(s => s.id === ref.id && same(s, ref));

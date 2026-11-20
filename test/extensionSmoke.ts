@@ -404,6 +404,21 @@ export async function run(): Promise<void> {
     assert.equal(accepted.length, suggestionsBefore + 2); assert(accepted.every(draft => draft.kind === 'acceptChange' && draft.path === 'main.tex'));
     await vscode.commands.executeCommand('turnleaf.acceptAllChanges', { path: 'main.tex' });
     assert.equal((await state.read()).pending.length, 0, 'Accept all again undoes all');
+    // Reject in selection decides only the suggestions the selection touches; again undoes them.
+    const end = source.document.getText().length;
+    source.selection = new vscode.Selection(source.document.positionAt(end - 4), source.document.positionAt(end));
+    await vscode.commands.executeCommand('turnleaf.rejectSelectionChanges');
+    const rejected = (await state.read()).pending;
+    assert.deepEqual(rejected.map(draft => [draft.kind, draft.change?.text]), [['rejectChange', ' BBB']], 'Only the selected suggestion is rejected');
+    await vscode.commands.executeCommand('turnleaf.rejectSelectionChanges');
+    assert.equal((await state.read()).pending.length, 0, 'Reject in selection again undoes it');
+    // Accept by author decides that author's suggestions in the file.
+    const reviewerRow = api.reviewView().suggestionRows!.find(row => row.path === 'main.tex' && row.text === ' AAA')!, reviewerKey = reviewerRow.authorId ?? reviewerRow.author;
+    const fromReviewer = api.reviewView().suggestionRows!.filter(row => row.path === 'main.tex' && (row.authorId ?? row.author) === reviewerKey).length;
+    await vscode.commands.executeCommand('turnleaf.acceptAuthorChanges', { path: 'main.tex', value: reviewerKey });
+    assert.equal((await state.read()).pending.filter(draft => draft.kind === 'acceptChange').length, fromReviewer);
+    await vscode.commands.executeCommand('turnleaf.acceptAuthorChanges', { path: 'main.tex', value: reviewerKey });
+    assert.equal((await state.read()).pending.length, 0, 'Accept by author again undoes it');
     // A card deletes your own message as a draft.
     const ownMessage = fixture.threads.c1.messages[0].id;
     await vscode.commands.executeCommand('turnleaf.deleteMessage', { value: 'c1', message: ownMessage });
@@ -443,7 +458,7 @@ export async function run(): Promise<void> {
     assert(startup.some(render => render.state === 'Checking Overleaf…'), `The first read after opening is shown as a check: ${JSON.stringify(startup)}`);
     for (const render of startup) assert(!/may be stale|Connect to an Overleaf project/.test(render.state) && (render.connected || render.state === 'Checking Overleaf…'), `No stale or signed-out status while the first read runs: ${JSON.stringify(startup)}`);
     assert.equal(api.reviewView().connected, true); assert.notEqual(api.reviewView().state, 'Checking Overleaf…', 'The check ends with the first read');
-    const result = { status: 'ready', runtime: api.runtime(), files: inspection.docs.length, contentWrites, inspectionRejectsTyping: true, localFilesUnchangedDuringInspection: true, localThreads: 5, reviewLog: true, localStatus: true, sidePanel: true, sidebar: true, nativeDiffs: true, diffRetainsCommentContext: true, reversibleOutlineMarkers: true, savedFileSend: true, previewBeforeApply: true, dirtyBufferInvalidatesReview: true, remoteCheckInvalidatesReview: true, queuedReplyAndEdit: true, newSelectionComment: true, reattachPreservesDependencies: true, nativeGlyphRanges: true, wholeBufferPreservesAnchorsAndDrafts: true, plaintextConflictResolution: true, persistedSyncHistory: true, noGitRequired: true, refreshPreservesEditDraft: true, incrementalMapping: true, undoRestoresAnchors: true, activeSplitFollowsSource: true, cachedReviewWithoutNetwork: true, largeComparisonWorker: true, suggestionDecisions: true, overlappingRedrawsKeepThreads: true, highlightSwitch: true, quietNavigation: true, acceptAll: true, cardDelete: true, firstSyncKeptSend: true, selectionChangeShowsCheck: true, startupShowsCheck: true, sendCheckSwitch: true };
+    const result = { status: 'ready', runtime: api.runtime(), files: inspection.docs.length, contentWrites, inspectionRejectsTyping: true, localFilesUnchangedDuringInspection: true, localThreads: 5, reviewLog: true, localStatus: true, sidePanel: true, sidebar: true, nativeDiffs: true, diffRetainsCommentContext: true, reversibleOutlineMarkers: true, savedFileSend: true, previewBeforeApply: true, dirtyBufferInvalidatesReview: true, remoteCheckInvalidatesReview: true, queuedReplyAndEdit: true, newSelectionComment: true, reattachPreservesDependencies: true, nativeGlyphRanges: true, wholeBufferPreservesAnchorsAndDrafts: true, plaintextConflictResolution: true, persistedSyncHistory: true, noGitRequired: true, refreshPreservesEditDraft: true, incrementalMapping: true, undoRestoresAnchors: true, activeSplitFollowsSource: true, cachedReviewWithoutNetwork: true, largeComparisonWorker: true, suggestionDecisions: true, overlappingRedrawsKeepThreads: true, highlightSwitch: true, quietNavigation: true, acceptAll: true, selectionAndAuthorDecisions: true, cardDelete: true, firstSyncKeptSend: true, selectionChangeShowsCheck: true, startupShowsCheck: true, sendCheckSwitch: true };
     await writeFile(resultPath, JSON.stringify(result, null, 2));
     if (process.env.TURNLEAF_SMOKE_HOLD === '1') {
       const deadline = Date.now() + 5 * 60_000;

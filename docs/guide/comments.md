@@ -66,7 +66,14 @@ To decide a suggestion:
 
 - Click **Accept on send** or **Reject on send** at the top right of its card, or the **Accept** / **Reject** links in its hover.
 - Click the same button again to undo the decision; the other button replaces it.
-- With two or more suggestions in a file, **Accept all** and **Reject all** decide them all at once.
+- With two or more suggestions in a file, **Accept all** and **Reject all** decide them all at once. From the Command Palette, **Turnleaf: Accept All Suggestions in File on Send** and **Turnleaf: Reject All Suggestions in File on Send** do the same for the file you are editing.
+
+To decide several suggestions at once:
+
+- **In a selection.** Select text and choose **Turnleaf: Accept Suggestions in Selection on Send** or **Turnleaf: Reject Suggestions in Selection on Send** from the editor's context menu or the Command Palette. As in Overleaf's review panel, this decides every suggested insertion that overlaps the selection and every suggested deletion inside it, including one at either edge of the selection. With several selections, it decides the suggestions of all of them.
+- **By author.** When a file has suggestions from two or more authors, **By author…** next to **Accept all** lists each author with their number of suggestions, to accept or reject all of theirs in that file. **Turnleaf: Accept Suggestions by Author in File on Send** and **Turnleaf: Reject Suggestions by Author in File on Send** do the same from the Command Palette for the file you are editing. Two accounts with the same name are listed separately.
+
+Choosing the same decision again for the same suggestions undoes it, as with **Accept all**; when only some of them have it, the rest get it too.
 
 A decision is a draft until Send, like any comment change. At Send, decisions are applied first, as Overleaf's review panel does, and then your file edits are sent against the result. Rejecting also updates your local file: the text of a rejected insertion is removed, and the text of a rejected deletion comes back. If a suggestion was decided or changed on Overleaf meanwhile, Send stops and names the file and line; discard the decision and look again.
 

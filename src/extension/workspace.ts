@@ -8,10 +8,10 @@ import { classifyLiveEvent } from '../core/live';
 import { SyncService, pushReport, PushPlan, ReviewWorkflow, PullPlan, SendBlock, UndoPlan, planDifferences, irreversible, sameRemote, sameContent, projectedInspection, fingerprint, pullChanges } from '../core/folderWorkflow';
 import { OutgoingPicture, gitBlobSha1, isPicture, outgoingSummary, pictureConflict, pictureSummary, picturesIncoming, remotePictures, samePictures, sendsPicture } from '../core/pictures';
 import { ProjectStore, ProjectData, CommentDraft, CommentChange, isDecision, carrySelection } from '../core/projectStore';
-import { sameSuggestion, suggestionRef } from '../core/suggestions';
+import { SuggestionAuthor, sameSuggestion, suggestionAuthors, suggestionRef, suggestionsInRange } from '../core/suggestions';
 import { readSaved, sameSaved, SavedTexts } from '../core/savedFiles';
 import { RemotePoller } from '../core/polling';
-import { Inspection } from '../core/models';
+import { DocState, Inspection, Suggestion } from '../core/models';
 import { ReviewRow, anchorLabel, reviewRows, trackedInspection, renderReviewLog, localStatus, rememberAnchors, textGone } from '../core/review';
 import { Mapping } from '../core/ranges';
 import { Diff, composeEdits } from '../core/diff';
@@ -303,7 +303,7 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
         const local = values[path] ?? '';
         for (const c of mapping.changes) {
           const decided = projectData.pending.find(draft => isDecision(draft) && draft.path === path && sameSuggestion(draft.change!, c));
-          nextSuggestions.push({ id: c.id, path, line: local.slice(0, c.pos).split('\n').length, pos: c.pos, kind: c.kind, text: c.text, author: c.author, timestamp: c.timestamp, ...decided && { decision: decided.kind === 'acceptChange' ? 'accept' : 'reject' } });
+          nextSuggestions.push({ id: c.id, path, line: local.slice(0, c.pos).split('\n').length, pos: c.pos, kind: c.kind, text: c.text, author: c.author, ...c.authorId !== undefined && { authorId: c.authorId }, timestamp: c.timestamp, ...decided && { decision: decided.kind === 'acceptChange' ? 'accept' : 'reject' } });
         }
       }
       suggestionRows = nextSuggestions;
@@ -989,7 +989,7 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
     context.subscriptions.push(webview.onDidReceiveMessage(message => {
       if (message?.ready === true) { posted.delete(webview); renderPanel(); return; }
       if (typeof message?.id === 'string' && rows.some(r => r.thread.id === message.id)) void vscode.commands.executeCommand('turnleaf.openThread', message.id);
-      if (['signIn', 'signInWithCookie', 'signOut', 'linkProject', 'openWalkthrough', 'configureFiles', 'enableWrites', 'refreshComments', 'pull', 'push', 'send', 'saveAll', 'openOutgoingDiff', 'undoSend', 'sendUndo', 'cancelUndo', 'sendReviewed', 'applyReviewed', 'applyAndReview', 'openPreviewDiff', 'cancelPreview', 'resolveConflict', 'useResolution', 'useRemoteVersion', 'keepLocalVersion', 'reviewDetails', 'recoverLocalApply', 'checkRemote', 'setCheckInterval', 'setSendCheck', 'toggleComments', 'toggleHighlights', 'toggleOutlineMarkers', 'showReviewPanel', 'openOverleaf', 'showSyncHistory', 'openReviewFiles', 'toggleReviewFiles', 'toggleReviewFilter', 'setCommentMarkers', 'editDraft', 'discardDraft', 'reattachDraft', 'newComment', 'reply', 'resolve', 'reopen', 'openThread', 'openSuggestion', 'acceptChange', 'rejectChange', 'acceptAllChanges', 'rejectAllChanges', 'editMessage', 'deleteMessage'].includes(message?.command)) void vscode.commands.executeCommand(`turnleaf.${message.command}`, { path: message.path, preview: message.preview, value: message.value, ...typeof message.text === 'string' && { text: message.text }, ...typeof message.message === 'string' && { message: message.message } });
+      if (['signIn', 'signInWithCookie', 'signOut', 'linkProject', 'openWalkthrough', 'configureFiles', 'enableWrites', 'refreshComments', 'pull', 'push', 'send', 'saveAll', 'openOutgoingDiff', 'undoSend', 'sendUndo', 'cancelUndo', 'sendReviewed', 'applyReviewed', 'applyAndReview', 'openPreviewDiff', 'cancelPreview', 'resolveConflict', 'useResolution', 'useRemoteVersion', 'keepLocalVersion', 'reviewDetails', 'recoverLocalApply', 'checkRemote', 'setCheckInterval', 'setSendCheck', 'toggleComments', 'toggleHighlights', 'toggleOutlineMarkers', 'showReviewPanel', 'openOverleaf', 'showSyncHistory', 'openReviewFiles', 'toggleReviewFiles', 'toggleReviewFilter', 'setCommentMarkers', 'editDraft', 'discardDraft', 'reattachDraft', 'newComment', 'reply', 'resolve', 'reopen', 'openThread', 'openSuggestion', 'acceptChange', 'rejectChange', 'acceptAllChanges', 'rejectAllChanges', 'decideAuthorChanges', 'editMessage', 'deleteMessage'].includes(message?.command)) void vscode.commands.executeCommand(`turnleaf.${message.command}`, { path: message.path, preview: message.preview, value: message.value, ...typeof message.text === 'string' && { text: message.text }, ...typeof message.message === 'string' && { message: message.message } });
     }));
   }
   async function showOverview() {
@@ -1242,20 +1242,76 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
     await reloadDrafts(`${kind === 'acceptChange' ? 'Accept' : 'Reject'} saved locally, listed as going out.`);
   }
   register('acceptChange', arg => decide('acceptChange', arg)); register('rejectChange', arg => decide('rejectChange', arg));
-  // Every suggestion in one file; when all already have this decision, undo them all.
-  async function decideAll(kind: 'acceptChange' | 'rejectChange', arg?: { path?: string }) {
-    const s = await setup(), data = await s.state.read(), doc = inspection?.docs.find(doc => doc.path === arg?.path);
-    if (!doc || !s.paths.includes(doc.path) || !doc.changes.length) throw new SyncError('This file has no suggestions to decide. Refresh, then try again.', 'stale');
-    const decisions = doc.changes.map(suggestion => { const change = suggestionRef(suggestion); return { change, existing: data.pending.find(draft => isDecision(draft) && draft.docId === doc.docId && sameSuggestion(draft.change!, change)) }; });
+  type DecisionKind = 'acceptChange' | 'rejectChange';
+  const decisionVerb = (kind: DecisionKind) => kind === 'acceptChange' ? 'Accept' : 'Reject';
+  const suggestionCount = (n: number) => `${n} suggestion${n === 1 ? '' : 's'}`;
+  // Each suggestion with the decision already saved for it, if any.
+  const savedDecisions = (data: ProjectData, doc: DocState, changes: Suggestion[]) => changes.map(suggestion => {
+    const change = suggestionRef(suggestion);
+    return { change, existing: data.pending.find(draft => isDecision(draft) && draft.docId === doc.docId && sameSuggestion(draft.change!, change)) };
+  });
+  // Several suggestions of one file at once; when all already have this decision, undo them all.
+  async function decideMany(kind: DecisionKind, doc: DocState, changes: Suggestion[], what: string) {
+    const s = await setup(), decisions = savedDecisions(await s.state.read(), doc, changes);
     if (decisions.some(d => d.existing?.uncertain)) throw new SyncError('Inspect the uncertain result in Sync history before changing these decisions.', 'recovery');
-    const undo = decisions.every(d => d.existing?.kind === kind), verb = kind === 'acceptChange' ? 'Accept' : 'Reject';
+    const undo = decisions.every(d => d.existing?.kind === kind), verb = decisionVerb(kind);
     for (const { change, existing } of decisions) {
       if (undo) await s.state.discard(existing!.id);
       else if (existing?.kind !== kind) await s.state.queue({ id: existing?.id ?? randomUUID(), kind, path: doc.path, docId: doc.docId, threadId: '', change, created: new Date().toISOString() });
     }
-    await reloadDrafts(undo ? `${verb} all undone in ${doc.path}.` : `${verb} all saved locally for ${doc.path}, listed as going out.`);
+    await reloadDrafts(undo ? `${verb} ${what} undone.` : `${verb} ${what} saved locally, listed as going out.`);
+  }
+  // The linked source file being edited: the active editor, else the last one used.
+  function sourceEditor(s: SyncService) {
+    const active = vscode.window.activeTextEditor;
+    return active?.document.uri.scheme === 'file' && s.paths.includes(relative(s.root, active.document.uri.fsPath).replace(/\\/g, '/')) ? active : lastSource;
+  }
+  // The file a command names, or the file being edited; it must have suggestions.
+  function suggestionDoc(s: SyncService, path?: string) {
+    const editor = path === undefined ? sourceEditor(s) : undefined;
+    const target = path ?? (editor && relative(s.root, editor.document.uri.fsPath).replace(/\\/g, '/'));
+    const doc = inspection?.docs.find(doc => doc.path === target);
+    if (!doc || !s.paths.includes(doc.path) || !doc.changes.length) throw new SyncError(target ? 'This file has no suggestions to decide. Refresh, then try again.' : 'Open a linked source file with suggestions first.', 'stale');
+    return doc;
+  }
+  // Every suggestion in one file.
+  async function decideAll(kind: DecisionKind, arg?: { path?: string }) {
+    const doc = suggestionDoc(await setup(), typeof arg?.path === 'string' ? arg.path : undefined);
+    await decideMany(kind, doc, doc.changes, `all in ${doc.path}`);
   }
   register('acceptAllChanges', arg => decideAll('acceptChange', arg)); register('rejectAllChanges', arg => decideAll('rejectChange', arg));
+  // The suggestions the editor's selections touch, as in Overleaf's review panel.
+  async function decideInSelection(kind: DecisionKind) {
+    const s = await setup(), editor = sourceEditor(s), ranges = editor?.selections.filter(selection => !selection.isEmpty) ?? [];
+    if (!editor || !ranges.length) throw new SyncError('Select text with suggestions in a linked source file first.', 'configuration');
+    const path = relative(s.root, editor.document.uri.fsPath).replace(/\\/g, '/'), rows = suggestionRows.filter(row => row.path === path);
+    const ids = new Set(ranges.flatMap(range => suggestionsInRange(rows, editor.document.offsetAt(range.start), editor.document.offsetAt(range.end)).map(row => row.id)));
+    const doc = inspection?.docs.find(doc => doc.path === path), changes = doc?.changes.filter(change => ids.has(change.id)) ?? [];
+    if (!doc || !changes.length) throw new SyncError('The selection has no suggestions to decide. Select text that includes a suggestion.', 'configuration');
+    await decideMany(kind, doc, changes, `${suggestionCount(changes.length)} in the selection in ${doc.path}`);
+  }
+  register('acceptSelectionChanges', () => decideInSelection('acceptChange')); register('rejectSelectionChanges', () => decideInSelection('rejectChange'));
+  // One author's suggestions in one file. Without a decision, the list offers both.
+  async function decideByAuthor(kind?: DecisionKind, arg?: { path?: string; value?: string }) {
+    const s = await setup(), doc = suggestionDoc(s, typeof arg?.path === 'string' ? arg.path : undefined), data = await s.state.read();
+    const authors = suggestionAuthors(doc.changes), shared = (name: string) => authors.filter(a => a.name === name).length > 1;
+    let choice: { kind: DecisionKind; author: SuggestionAuthor<Suggestion> } | undefined;
+    if (kind && typeof arg?.value === 'string') {
+      const author = authors.find(a => a.key === arg.value);
+      if (!author) throw new SyncError('This author has no suggestions in this file. Refresh, then try again.', 'stale');
+      choice = { kind, author };
+    } else {
+      const items = authors.flatMap(author => (kind ? [kind] : ['acceptChange', 'rejectChange'] as const).map(k => {
+        const done = savedDecisions(data, doc, author.suggestions).every(d => d.existing?.kind === k), verb = decisionVerb(k);
+        return { label: `${done ? `Undo ${verb.toLowerCase()} of` : verb} ${suggestionCount(author.suggestions.length)} from ${author.name}`, description: shared(author.name) ? author.key : undefined, choice: { kind: k, author } };
+      }));
+      choice = (await vscode.window.showQuickPick(items, { title: `Decide suggestions by author in ${doc.path}`, placeHolder: 'Saved locally until you Send' }))?.choice;
+    }
+    if (!choice) return;
+    await decideMany(choice.kind, doc, choice.author.suggestions, `${suggestionCount(choice.author.suggestions.length)} from ${choice.author.name} in ${doc.path}`);
+  }
+  register('acceptAuthorChanges', arg => decideByAuthor('acceptChange', arg)); register('rejectAuthorChanges', arg => decideByAuthor('rejectChange', arg));
+  register('decideAuthorChanges', arg => decideByAuthor(undefined, arg));
   async function mutateComment(kind: 'reply' | 'resolve' | 'reopen' | 'editMessage' | 'deleteMessage' | 'deleteThread', arg?: any) {
     let native: RemoteComment | undefined;
     if (kind === 'editMessage' || kind === 'deleteMessage') native = findComment(arg).comment;
@@ -1288,9 +1344,8 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
     await reloadDrafts();
   }
   async function commentSelection(s: SyncService) {
-    const active = vscode.window.activeTextEditor;
     const sourcePath = (editor: vscode.TextEditor) => relative(s.root, editor.document.uri.fsPath).replace(/\\/g, '/');
-    const editor = active?.document.uri.scheme === 'file' && s.paths.includes(sourcePath(active)) ? active : lastSource;
+    const editor = sourceEditor(s);
     if (!editor) throw new SyncError('Select text in a linked source file first.', 'configuration');
     const path = sourcePath(editor);
     const doc = inspection?.docs.find(d => d.path === path);

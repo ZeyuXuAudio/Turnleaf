@@ -2,6 +2,14 @@
 
 All notable user-facing changes to Turnleaf are listed here, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Added
+
+- Accept or reject the suggestions in the editor selection: **Turnleaf: Accept Suggestions in Selection on Send** and **Turnleaf: Reject Suggestions in Selection on Send**, in the editor's context menu and the Command Palette. As in Overleaf's review panel, they decide the suggested insertions that overlap the selection and the suggested deletions inside it.
+- Accept or reject one author's suggestions in a file: **By author…** next to **Accept all** in the sidebar when a file has suggestions from two or more authors, and **Turnleaf: Accept Suggestions by Author in File on Send** / **Reject…** in the Command Palette.
+- **Accept All Suggestions in File on Send** and **Reject All Suggestions in File on Send** are now in the Command Palette, for the file you are editing.
+
 ## 0.10.2
 
 ### Added

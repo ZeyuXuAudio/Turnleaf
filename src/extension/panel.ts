@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { ReviewRow, anchorLabel, localStatus, textGone } from '../core/review';
 import { Reviews } from '../core/storage';
+import { suggestionAuthors } from '../core/suggestions';
 import { brandMark, icon, Icon } from './icons';
 import { panelStyle } from './panelStyle';
 import type { CommentChange } from '../core/projectStore';
@@ -63,7 +64,7 @@ export interface UndoView {
   blocked?: SummaryBlock; unsaved?: string[]; notice?: string; selectedPath?: string;
 }
 /** A suggested change, positioned in the local text, with the decision waiting for Send. */
-export interface SuggestionRow { id: string; path: string; line: number; pos: number; kind: 'insert' | 'delete'; text: string; author: string; timestamp?: string | number; decision?: 'accept' | 'reject'; }
+export interface SuggestionRow { id: string; path: string; line: number; pos: number; kind: 'insert' | 'delete'; text: string; author: string; authorId?: string; timestamp?: string | number; decision?: 'accept' | 'reject'; }
 /** The thread shown in the larger view's detail column. */
 export interface ThreadDetail { row: ReviewRow; anchorText: string; context: { line: number; text: string; anchored: boolean }[]; }
 export interface ProjectView {
@@ -313,11 +314,12 @@ export function projectContent(view: ProjectView, surface: Surface = 'sidebar'):
     ${s.decision ? `<div class="card-foot"><span class="badge pending">${s.decision === 'accept' ? 'Accept' : 'Reject'} on send</span></div>` : ''}</article>`;
   // A labelled switch: the editor highlights every commented text, or none.
   const highlightSwitch = `<button type="button" class="switch" role="switch" data-command="toggleHighlights" aria-checked="${view.highlightComments !== false}" title="${view.highlightComments !== false ? 'Commented text is highlighted in the editor. Click to hide the highlights.' : 'Comment highlights are hidden. Click to show them.'}"${view.busy ? ' disabled' : ''}><span class="track" aria-hidden="true"><span class="thumb"></span></span>Highlights</button>`;
-  // Accept or reject every suggestion in a file; again to undo.
+  // Accept or reject every suggestion in a file, or one author's; again to undo.
   const bulk = (path: string, suggestions: SuggestionRow[]) => {
     if (suggestions.length < 2) return '';
     const all = (decision: 'accept' | 'reject') => suggestions.every(s => s.decision === decision);
-    return `<div class="bulk"><span class="meta">${plural(suggestions.length, 'suggestion')}</span>${small('acceptAllChanges', all('accept') ? 'Undo accept all' : 'Accept all', { className: 'decide-all accept', attrs: `data-path="${escape(path)}"` })}${small('rejectAllChanges', all('reject') ? 'Undo reject all' : 'Reject all', { className: 'decide-all reject', attrs: `data-path="${escape(path)}"` })}</div>`;
+    const byAuthor = suggestionAuthors(suggestions).length > 1 ? small('decideAuthorChanges', 'By author…', { className: 'decide-author', attrs: `data-path="${escape(path)}"`, title: 'Accept or reject the suggestions of one author in this file' }) : '';
+    return `<div class="bulk"><span class="meta">${plural(suggestions.length, 'suggestion')}</span>${small('acceptAllChanges', all('accept') ? 'Undo accept all' : 'Accept all', { className: 'decide-all accept', attrs: `data-path="${escape(path)}"` })}${small('rejectAllChanges', all('reject') ? 'Undo reject all' : 'Reject all', { className: 'decide-all reject', attrs: `data-path="${escape(path)}"` })}${byAuthor}</div>`;
   };
   type Item = { path: string; line: number; html: string; kinds: (keyof ReviewFilter)[] };
   const filter = view.reviewFilter ?? reviewFilterDefault;
