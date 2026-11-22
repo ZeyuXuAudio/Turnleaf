@@ -14,7 +14,7 @@ Turnleaf is a VS Code and Cursor extension for authors who write LaTeX in a loca
 
 ## Features
 
-- **Comments and suggestions in the editor.** Overleaf threads appear as gutter markers, highlights and native comment threads; suggested insertions and deletions are marked in the text. Reply, edit, resolve, reopen, accept and reject from the sidebar or the editor.
+- **Comments and suggestions in the editor.** Overleaf threads appear as gutter markers, highlights and native comment threads; suggested insertions and deletions are marked in the text. Reply, edit, resolve and reopen from the sidebar or the editor; each sidebar card shows the thread's newest reply. Accept or reject suggestions one at a time, in the selected text, by author, or all in a file.
 - **Get latest with a merge preview.** Overleaf changes are merged three ways with your saved files and shown as diffs before anything changes on disk. Non-overlapping local edits are kept; conflicts are resolved in the editor.
 - **Outgoing summary and one Send.** The sidebar always lists what the next Send writes: files with line counts and every queued comment change. Send checks Overleaf again and writes only what the summary showed.
 - **Undo this send.** Take a send back from Overleaf; your local files stay as they are.
@@ -68,12 +68,10 @@ Turnleaf is a VS Code and Cursor extension for authors who write LaTeX in a loca
 
 ## Install
 
-Turnleaf is currently installed from a VSIX file:
+- **VS Code**: install **Turnleaf** from the [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=zeyuxu.turnleaf), or search for "Turnleaf" in the Extensions view. VS Code installs new versions automatically.
+- **Cursor**: Turnleaf is not on Open VSX yet, the store Cursor installs extensions from. Download `turnleaf-<version>.vsix` from the repository's [Releases page](https://github.com/ZeyuXuAudio/Turnleaf/releases), run **Extensions: Install from VSIX…** from the Command Palette and choose the file. Install each new version the same way.
 
-1. Download `turnleaf-<version>.vsix` from the repository's Releases page, or build it yourself (see [CONTRIBUTING.md](CONTRIBUTING.md)).
-2. In VS Code or Cursor, run **Extensions: Install from VSIX…** from the Command Palette and choose the file.
-
-Publication on the Visual Studio Marketplace and Open VSX is coming soon.
+To build the VSIX yourself, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 Requirements:
 
@@ -115,6 +113,7 @@ The commands below are in the Command Palette under **Turnleaf:**.
 | **Turnleaf: Get Latest (Preview)** | Preview and apply Overleaf's changes |
 | **Turnleaf: Show Outgoing Summary and Send** | Show what goes out next |
 | **Turnleaf: New Comment on Selection** | Start a comment on the selected text (also in the editor's context menu) |
+| **Turnleaf: Accept Suggestions in Selection on Send** | Accept the suggestions in the selected text at the next Send; **Reject Suggestions in Selection on Send** rejects them (both also in the editor's context menu) |
 | **Turnleaf: Open Sync History** | Open the timeline of sends and applies |
 | **Turnleaf: Export Annotated Review PDF** | Put the comments on your compiled PDF |
 

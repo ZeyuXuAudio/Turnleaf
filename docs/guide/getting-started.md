@@ -4,10 +4,10 @@ This page takes you from installing Turnleaf to a linked project with chosen fil
 
 ## Install
 
-Turnleaf is currently installed from a VSIX file. Publication on the Visual Studio Marketplace and Open VSX is coming soon.
+- **VS Code**: install **Turnleaf** from the [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=zeyuxu.turnleaf), or search for "Turnleaf" in the Extensions view. VS Code installs new versions automatically.
+- **Cursor**: Turnleaf is not on Open VSX yet, the store Cursor installs extensions from. Download `turnleaf-<version>.vsix` from the repository's [Releases page](https://github.com/ZeyuXuAudio/Turnleaf/releases), run **Extensions: Install from VSIX…** and choose the file. Install each new version the same way.
 
-1. Get `turnleaf-<version>.vsix` from the repository's Releases page, or build it yourself (see [CONTRIBUTING.md](../../CONTRIBUTING.md)).
-2. In VS Code or Cursor, run **Extensions: Install from VSIX…** and choose the file.
+To build the VSIX yourself, see [CONTRIBUTING.md](../../CONTRIBUTING.md).
 
 You need VS Code 1.85.2 or newer, or a current Cursor release.
 
