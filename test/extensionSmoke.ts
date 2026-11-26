@@ -388,7 +388,11 @@ export async function run(): Promise<void> {
     assert.equal(api.reviewThread('c1')?.collapsibleState, vscode.CommentThreadCollapsibleState.Collapsed);
     await vscode.commands.executeCommand('turnleaf.toggleHighlights'); assert.equal(api.reviewSnapshot().highlights, true);
     const defaultDecorations = api.reviewSnapshot().decorations;
-    assert(defaultDecorations.comments > 0 && defaultDecorations.insertions > 0 && defaultDecorations.deletions > 0, 'Highlights on shows decorations for the selected review items');
+    // By now the conflict resolution has replaced the open comments' text (their anchors sit in a
+    // suggested deletion or are gone), so only text still in the editor is highlighted; the resolved c2 stays hidden.
+    const openHighlights = api.reviewView().rows.filter(row => row.path === 'main.tex' && !row.thread.resolved).flatMap(row => row.anchor.ranges).filter(range => range.length > 0).length;
+    assert.equal(defaultDecorations.comments, openHighlights, 'Highlights on shows comment highlights for the open comments that still have text');
+    assert(defaultDecorations.insertions > 0 && defaultDecorations.deletions > 0, 'Highlights on shows suggestion decorations');
     // Review filter chips control both editor gutter markers and highlights.
     assert.equal(api.reviewThread('c2'), undefined, 'Resolved thread stays hidden while Resolved is off');
     await vscode.commands.executeCommand('turnleaf.toggleReviewFilter', { value: 'resolved' });
