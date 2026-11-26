@@ -42,7 +42,7 @@ export interface TestApi {
   refreshLocal(): Promise<void>;
   /** `startup`: as when the window opens, including the first read. */
   restoreLocal(startup?: boolean): Promise<void>;
-  reviewSnapshot(): { threadCount: number; disposedInUse: number; highlights: boolean; labels: string[]; panel: boolean; sidebar: boolean; cached: boolean; state: string; activePath?: string; preview?: { id: string; kind: string; stale?: string; complete?: string; files: number } };
+  reviewSnapshot(): { threadCount: number; disposedInUse: number; highlights: boolean; decorations: { comments: number; insertions: number; deletions: number }; labels: string[]; panel: boolean; sidebar: boolean; cached: boolean; state: string; activePath?: string; preview?: { id: string; kind: string; stale?: string; complete?: string; files: number } };
   /** True once the outgoing summary reflects the current files and drafts. */
   summarySettled(): boolean;
   reviewThread(id: string): vscode.CommentThread | undefined;

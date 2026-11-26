@@ -77,7 +77,7 @@ export async function run(): Promise<void> {
     try { await new Promise(resolve => setTimeout(resolve, 700)); await vscode.commands.executeCommand('turnleaf.applyReviewed', { preview: firstSync.id }); }
     finally { sourceFocus.dispose(); }
     assert.equal(appliedSource?.fsPath, vscode.Uri.joinPath(folder.uri, 'references.bib').fsPath, 'Apply leaves the virtual diff for the changed local source');
-    assert.equal(api.reviewSnapshot().threadCount, 5); assert(!existsSync(folder.uri.fsPath + '/.git'));
+    assert.equal(api.reviewSnapshot().threadCount, 4); assert.equal(api.reviewThread('c2'), undefined, 'Resolved threads are hidden while Resolved is off'); assert(!existsSync(folder.uri.fsPath + '/.git'));
     assert.deepEqual((await summary(o => o.files.length === 1, 'The kept file is listed as going out')).files.map(file => file.path), ['main.tex']);
     assert.equal(api.reviewView().preview, undefined, 'No send preview: the summary is the review');
     assert.equal(Buffer.from(await vscode.workspace.fs.readFile(vscode.Uri.joinPath(folder.uri, 'main.tex'))).toString(), 'Local text remains unchanged during inspection.\n');
@@ -207,7 +207,7 @@ export async function run(): Promise<void> {
     const contacts = () => fixture.requests.filter(request => !request.path.includes('/socket.io/1/xhr-polling/')).length;
     const reads = contacts(); await api.restoreLocal();
     assert.equal(contacts(), reads, 'Opening cached review must not contact Overleaf');
-    assert.equal(api.reviewSnapshot().threadCount, 5); assert.equal(api.reviewSnapshot().cached, true); assert.match(api.reviewSnapshot().state, /stale/);
+    assert.equal(api.reviewSnapshot().threadCount, 4); assert.equal(api.reviewSnapshot().cached, true); assert.match(api.reviewSnapshot().state, /stale/);
     // Exercise the production sidebar, native comment actions, and native diff tabs.
     await config.update('allowWrites', true, vscode.ConfigurationTarget.WorkspaceFolder);
     await api.refreshLocal();
@@ -382,10 +382,30 @@ export async function run(): Promise<void> {
     const threadsBefore = api.reviewSnapshot().threadCount;
     await Promise.all([api.refreshLocal(), api.refreshLocal(), vscode.commands.executeCommand('turnleaf.toggleHighlights'), api.refreshLocal()]);
     assert.equal(api.reviewSnapshot().disposedInUse, 0, 'No disposed thread stays in use'); assert.equal(api.reviewSnapshot().threadCount, threadsBefore);
-    // Highlights off hides them and closes open comment windows; the switch remembers its state.
+    // Highlights off hides comment and suggestion decorations and closes open comment windows; the switch remembers its state.
     assert.equal(api.reviewSnapshot().highlights, false);
+    assert.deepEqual(api.reviewSnapshot().decorations, { comments: 0, insertions: 0, deletions: 0 }, 'Highlights off clears comment and suggestion decorations');
     assert.equal(api.reviewThread('c1')?.collapsibleState, vscode.CommentThreadCollapsibleState.Collapsed);
     await vscode.commands.executeCommand('turnleaf.toggleHighlights'); assert.equal(api.reviewSnapshot().highlights, true);
+    const defaultDecorations = api.reviewSnapshot().decorations;
+    assert(defaultDecorations.comments > 0 && defaultDecorations.insertions > 0 && defaultDecorations.deletions > 0, 'Highlights on shows decorations for the selected review items');
+    // Review filter chips control both editor gutter markers and highlights.
+    assert.equal(api.reviewThread('c2'), undefined, 'Resolved thread stays hidden while Resolved is off');
+    await vscode.commands.executeCommand('turnleaf.toggleReviewFilter', { value: 'resolved' });
+    assert(api.reviewThread('c2'), 'Turning Resolved on shows resolved gutter markers');
+    assert(api.reviewSnapshot().decorations.comments > defaultDecorations.comments, 'Turning Resolved on highlights resolved comments');
+    await vscode.commands.executeCommand('turnleaf.toggleReviewFilter', { value: 'resolved' });
+    assert.equal(api.reviewThread('c2'), undefined, 'Turning Resolved off hides resolved gutter markers again');
+    assert.equal(api.reviewSnapshot().decorations.comments, defaultDecorations.comments);
+    await vscode.commands.executeCommand('turnleaf.toggleReviewFilter', { value: 'suggestions' });
+    assert.equal(api.reviewSnapshot().decorations.insertions, 0, 'Turning Suggestions off hides suggested insertions');
+    assert.equal(api.reviewSnapshot().decorations.deletions, 0, 'Turning Suggestions off hides suggested deletions');
+    assert.equal(api.reviewSnapshot().decorations.comments, defaultDecorations.comments, 'Comment highlights stay visible while Open is on');
+    await vscode.commands.executeCommand('turnleaf.toggleReviewFilter', { value: 'suggestions' });
+    assert.deepEqual(api.reviewSnapshot().decorations, defaultDecorations);
+    // Opening a filtered-out thread still reveals it until another thread opens or its filter changes.
+    await vscode.commands.executeCommand('turnleaf.openThread', 'c2');
+    assert(api.reviewThread('c2'), 'Opening a resolved thread reveals it even while Resolved is off');
     // Opening a thread neither waits for nor is refused by a running Overleaf operation.
     await Promise.all([vscode.commands.executeCommand('turnleaf.checkRemote'), vscode.commands.executeCommand('turnleaf.openThread', 'legacy')]);
     assert.equal(api.reviewView().selectedThread, 'legacy', 'Open thread ran while the check was running');
@@ -458,7 +478,7 @@ export async function run(): Promise<void> {
     assert(startup.some(render => render.state === 'Checking Overleaf…'), `The first read after opening is shown as a check: ${JSON.stringify(startup)}`);
     for (const render of startup) assert(!/may be stale|Connect to an Overleaf project/.test(render.state) && (render.connected || render.state === 'Checking Overleaf…'), `No stale or signed-out status while the first read runs: ${JSON.stringify(startup)}`);
     assert.equal(api.reviewView().connected, true); assert.notEqual(api.reviewView().state, 'Checking Overleaf…', 'The check ends with the first read');
-    const result = { status: 'ready', runtime: api.runtime(), files: inspection.docs.length, contentWrites, inspectionRejectsTyping: true, localFilesUnchangedDuringInspection: true, localThreads: 5, reviewLog: true, localStatus: true, sidePanel: true, sidebar: true, nativeDiffs: true, diffRetainsCommentContext: true, reversibleOutlineMarkers: true, savedFileSend: true, previewBeforeApply: true, dirtyBufferInvalidatesReview: true, remoteCheckInvalidatesReview: true, queuedReplyAndEdit: true, newSelectionComment: true, reattachPreservesDependencies: true, nativeGlyphRanges: true, wholeBufferPreservesAnchorsAndDrafts: true, plaintextConflictResolution: true, persistedSyncHistory: true, noGitRequired: true, refreshPreservesEditDraft: true, incrementalMapping: true, undoRestoresAnchors: true, activeSplitFollowsSource: true, cachedReviewWithoutNetwork: true, largeComparisonWorker: true, suggestionDecisions: true, overlappingRedrawsKeepThreads: true, highlightSwitch: true, quietNavigation: true, acceptAll: true, selectionAndAuthorDecisions: true, cardDelete: true, firstSyncKeptSend: true, selectionChangeShowsCheck: true, startupShowsCheck: true, sendCheckSwitch: true };
+    const result = { status: 'ready', runtime: api.runtime(), files: inspection.docs.length, contentWrites, inspectionRejectsTyping: true, localFilesUnchangedDuringInspection: true, localThreads: 4, reviewLog: true, localStatus: true, sidePanel: true, sidebar: true, nativeDiffs: true, diffRetainsCommentContext: true, reversibleOutlineMarkers: true, savedFileSend: true, previewBeforeApply: true, dirtyBufferInvalidatesReview: true, remoteCheckInvalidatesReview: true, queuedReplyAndEdit: true, newSelectionComment: true, reattachPreservesDependencies: true, nativeGlyphRanges: true, wholeBufferPreservesAnchorsAndDrafts: true, plaintextConflictResolution: true, persistedSyncHistory: true, noGitRequired: true, refreshPreservesEditDraft: true, incrementalMapping: true, undoRestoresAnchors: true, activeSplitFollowsSource: true, cachedReviewWithoutNetwork: true, largeComparisonWorker: true, suggestionDecisions: true, overlappingRedrawsKeepThreads: true, highlightSwitch: true, filterDrivenHighlights: true, quietNavigation: true, acceptAll: true, selectionAndAuthorDecisions: true, cardDelete: true, firstSyncKeptSend: true, selectionChangeShowsCheck: true, startupShowsCheck: true, sendCheckSwitch: true };
     await writeFile(resultPath, JSON.stringify(result, null, 2));
     if (process.env.TURNLEAF_SMOKE_HOLD === '1') {
       const deadline = Date.now() + 5 * 60_000;

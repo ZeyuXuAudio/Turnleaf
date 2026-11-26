@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseDocument } from 'htmlparser2';
 import { Element, isTag, NodeWithChildren } from 'domhandler';
-import { projectContent, projectPanel, ProjectView, OutgoingView } from '../src/extension/panel';
+import { projectContent, projectPanel, ProjectView, OutgoingView, reviewFilterDefault, matchesThreadFilter, matchesSuggestionFilter } from '../src/extension/panel';
 import { historyPage } from '../src/extension/history';
 import { shortDateTime } from '../src/extension/format';
 
@@ -390,6 +390,7 @@ test('comment change cards say what the comment is on and mark only the change',
 test('highlight switch, Accept all / Reject all per file, and editing your own comments', () => {
   const on = elements(projectContent(view({ highlightComments: true })));
   assert.equal(command(on, 'toggleHighlights')?.attribs.role, 'switch'); assert.equal(command(on, 'toggleHighlights')?.attribs['aria-checked'], 'true');
+  assert.match(command(on, 'toggleHighlights')?.attribs.title ?? '', /Selected review items/);
   assert.equal(command(elements(projectContent(view({ highlightComments: false }))), 'toggleHighlights')?.attribs['aria-checked'], 'false');
   const s = (id: string, line: number, decision?: 'accept' | 'reject') => ({ id, path: 'main.tex', line, pos: line, kind: 'insert' as const, text: 'x', author: 'R', ...decision && { decision } });
   const two = elements(projectContent(view({ activePath: 'main.tex', suggestionRows: [s('a', 1), s('b', 2)] })));
@@ -424,6 +425,14 @@ test('review filter chips list open, resolved, suggestions and going-out items, 
   const resolvedOnly = projectContent(view({ ...base, reviewFilter: { open: false, resolved: true, suggestions: false, outgoing: false } }));
   assert.match(resolvedOnly, /Thread done1/); assert.doesNotMatch(resolvedOnly, /Thread open1|Suggested words/);
   assert.match(projectContent(view({ ...base, reviewFilter: { open: false, resolved: false, suggestions: false, outgoing: false } })), /Nothing matches the chosen kinds/);
+  assert.equal(matchesThreadFilter(false, false, reviewFilterDefault), true);
+  assert.equal(matchesThreadFilter(true, false, reviewFilterDefault), false, 'Resolved threads are excluded by default');
+  assert.equal(matchesThreadFilter(true, true, reviewFilterDefault), true, 'Resolved threads with outgoing drafts match Going out');
+  assert.equal(matchesThreadFilter(false, false, { open: false, resolved: true, suggestions: false, outgoing: false }), false);
+  assert.equal(matchesSuggestionFilter(false, reviewFilterDefault), true);
+  assert.equal(matchesSuggestionFilter(false, { open: true, resolved: false, suggestions: false, outgoing: true }), false, 'Undecided suggestions hide when Suggestions is off');
+  assert.equal(matchesSuggestionFilter(true, { open: true, resolved: false, suggestions: false, outgoing: true }), true, 'Decided suggestions match Going out');
+  assert.equal(matchesSuggestionFilter(true, { open: true, resolved: false, suggestions: false, outgoing: false }), false);
 });
 
 test('the Setup tab has a switch for comment files for AI agents and scripts', () => {

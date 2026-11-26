@@ -28,9 +28,13 @@ export interface SummaryPicture { path: string; summary: string; sends: boolean;
 export interface SummaryBlock { way: 'recover' | 'getLatest' | 'draft' | 'fix'; message: string; draftId?: string }
 /** Where Show in editor goes for a summary row. */
 export interface Place { command: 'openThread' | 'openSuggestion'; path?: string; value: string }
-/** Which kinds of review items the Review tab lists; an item shows when any of its kinds is on. */
+/** Which kinds of review items the Review tab and editor show; an item shows when any of its kinds is on. */
 export interface ReviewFilter { open: boolean; resolved: boolean; suggestions: boolean; outgoing: boolean }
 export const reviewFilterDefault: ReviewFilter = { open: true, resolved: false, suggestions: true, outgoing: true };
+export const matchesThreadFilter = (resolved: boolean, pending: boolean, filter: ReviewFilter): boolean =>
+  (resolved ? filter.resolved : filter.open) || (filter.outgoing && pending);
+export const matchesSuggestionFilter = (decided: boolean, filter: ReviewFilter): boolean =>
+  filter.suggestions || (filter.outgoing && decided);
 /**
  * The standing outgoing summary: what Send would write, from the saved files, the
  * queued comment changes and the last observed Overleaf state.
@@ -312,8 +316,8 @@ export function projectContent(view: ProjectView, surface: Surface = 'sidebar'):
     <button type="button" class="card-main" data-command="openSuggestion" data-path="${escape(s.path)}" data-value="${s.pos}" aria-label="${escape(s.author)}: ${s.kind === 'insert' ? 'Added' : 'Deleted'} ${escape(clip(s.text.replace(/\n/g, '⏎'), 120))}. Line ${s.line}. Open suggestion"><strong>${escape(s.author)}</strong><span class="meta">${escape(when(s.timestamp))}${when(s.timestamp) ? ' · ' : ''}<span class="chip">L${s.line}</span></span></button>${decideButton(s, 'accept')}${decideButton(s, 'reject')}</div>
     <button type="button" class="card-text" data-command="openSuggestion" data-path="${escape(s.path)}" data-value="${s.pos}" tabindex="-1">${suggestionText(s)}</button>
     ${s.decision ? `<div class="card-foot"><span class="badge pending">${s.decision === 'accept' ? 'Accept' : 'Reject'} on send</span></div>` : ''}</article>`;
-  // A labelled switch: the editor highlights every commented text, or none.
-  const highlightSwitch = `<button type="button" class="switch" role="switch" data-command="toggleHighlights" aria-checked="${view.highlightComments !== false}" title="${view.highlightComments !== false ? 'Commented text is highlighted in the editor. Click to hide the highlights.' : 'Comment highlights are hidden. Click to show them.'}"${view.busy ? ' disabled' : ''}><span class="track" aria-hidden="true"><span class="thumb"></span></span>Highlights</button>`;
+  // A labelled switch: the editor highlights the selected review items, or none.
+  const highlightSwitch = `<button type="button" class="switch" role="switch" data-command="toggleHighlights" aria-checked="${view.highlightComments !== false}" title="${view.highlightComments !== false ? 'Selected review items are highlighted in the editor. Click to hide the highlights.' : 'Review highlights are hidden in the editor. Click to show them.'}"${view.busy ? ' disabled' : ''}><span class="track" aria-hidden="true"><span class="thumb"></span></span>Highlights</button>`;
   // Accept or reject every suggestion in a file, or one author's; again to undo.
   const bulk = (path: string, suggestions: SuggestionRow[]) => {
     if (suggestions.length < 2) return '';

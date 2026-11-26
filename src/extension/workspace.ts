@@ -18,7 +18,7 @@ import { Diff, composeEdits } from '../core/diff';
 import { SessionExpiredError, SyncError, safeError } from '../core/errors';
 import { annotatePdf } from '../core/pdf';
 import { ReviewComputer } from './reviewComputer';
-import { projectPanel, projectContent, ProjectView, OutgoingView, UndoView, Surface, SuggestionRow, ThreadDetail, Place, ReviewFilter, reviewFilterDefault } from './panel';
+import { projectPanel, projectContent, ProjectView, OutgoingView, UndoView, Surface, SuggestionRow, ThreadDetail, Place, ReviewFilter, reviewFilterDefault, matchesThreadFilter, matchesSuggestionFilter } from './panel';
 import { validateTrackedFiles } from '../core/docState';
 import { ReviewDiffDecorations } from './diffDecorations';
 import { markerStyle } from './markerStyle';
@@ -95,6 +95,7 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
   // reset that the settings change causes keeps the sign-in and starts `checking`.
   let checking = false, reselecting = false;
   let selectedThread: string | undefined, selectedDiff: string | undefined, highlightComments = context.workspaceState.get<boolean>('turnleaf.highlightComments', true);
+  let decorated = { comments: 0, insertions: 0, deletions: 0 };
   const resolutionPaths = new Map<string, vscode.Uri>(), conflictNotes = new Map<string, string>();
   // Suggestions, positioned in the local text by the last draw.
   let suggestionRows: SuggestionRow[] = [];
@@ -200,7 +201,7 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
     cache = { schema: 1, anchors: {} }; reviews = {}; author = undefined; session = keep ? 'valid' : 'unknown'; configurationVersion++;
     projectData = { schema: 2, anchors: {}, reviews: {}, pending: [] };
     threads.splice(0).forEach(dropThread); updateCommentingRanges(); prepared = undefined; resolutionPaths.clear(); closeLive();
-    selectedThread = undefined; selectedDiff = undefined; previewColors.clear();
+    selectedThread = undefined; selectedDiff = undefined; revealedThread = undefined; decorated = { comments: 0, insertions: 0, deletions: 0 }; previewColors.clear();
     standing = undefined; undoing = undefined; standingInputs = undefined; standingRun++; standingBusy = false; clearTimeout(standingTimer); standingTimer = undefined; lastSent = undefined; lastReport = undefined;
     poller.configure(0);
     checkedAt = undefined; freshness = FRESHNESS.unchecked; renderPanel();
@@ -308,10 +309,13 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
       }
       suggestionRows = nextSuggestions;
       rows = nextRows.sort((a, b) => Number(!a.line) - Number(!b.line) || a.path.localeCompare(b.path) || a.line - b.line || a.thread.id.localeCompare(b.thread.id));
+      const pendingThreads = new Set(projectData.pending.map(draft => draft.threadId).filter(Boolean));
+      const threadVisible = (row: ReviewRow) => (!author || row.thread.messages.some(m => m.author === author))
+        && (matchesThreadFilter(row.thread.resolved, pendingThreads.has(row.thread.id), reviewFilter) || revealedThread === row.thread.id);
       const previousThreads = new Map(threads.filter(t => !disposedThreads.has(t)).map(t => [ids.get(t)!, t]));
       const nextThreads: vscode.CommentThread[] = [];
       const documents = new Map(vscode.workspace.textDocuments.map(doc => [doc.uri.toString(), doc]));
-      for (const row of rows.filter(r => !author || r.thread.messages.some(m => m.author === author))) {
+      for (const row of rows.filter(threadVisible)) {
         const existing = previousThreads.get(row.thread.id), local = localStatus(row.thread.id, reviews), priorView = existing && threadViews.get(existing);
         const uri = vscode.Uri.joinPath(vscode.Uri.file(s.root), row.path);
         let doc: vscode.TextDocument;
@@ -354,27 +358,32 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
         threadViews.set(thread, { row, status: local, documentVersion: doc.version, marker });
       }
       previousThreads.forEach(dropThread); threads = nextThreads; updateCommentingRanges();
+      const nextDecorated = { comments: 0, insertions: 0, deletions: 0 };
       for (const editor of vscode.window.visibleTextEditors) {
         const path = relative(s.root, editor.document.uri.fsPath).replace(/\\/g, '/'), map = mappings.get(path);
-        const selected = rows.filter(r => r.path === path && (!author || r.thread.messages.some(m => m.author === author)));
+        const selected = rows.filter(r => r.path === path && threadVisible(r));
         const options: vscode.DecorationOptions[] = [], markers: vscode.DecorationOptions[] = [];
         for (const row of selected) {
           if (!highlightComments) continue;
           for (const r of row.anchor.ranges.filter(r => r.length > 0)) options.push({ range: new vscode.Range(editor.document.positionAt(r.pos), editor.document.positionAt(r.pos + r.length)), hoverMessage: hover(row) });
         }
         const inserts: vscode.DecorationOptions[] = [];
-        for (const c of map?.changes ?? []) {
-          const point = editor.document.positionAt(c.pos), md = new vscode.MarkdownString().appendMarkdown(`**${c.kind === 'insert' ? 'Suggested insertion' : 'Suggested deletion'}**`).appendText([c.author, shortDateTime(c.timestamp)].filter(Boolean).map(text => ` · ${text}`).join('')).appendMarkdown('\n\n').appendText(c.text).appendMarkdown('\n\n');
+        if (highlightComments) for (const c of map?.changes ?? []) {
           // Decisions wait for Send, like resolving a comment.
-          const decided = suggestionRows.find(row => row.path === path && row.id === c.id)?.decision, args = commandArgs([{ path, value: c.id }]);
+          const decided = suggestionRows.find(row => row.path === path && row.id === c.id)?.decision;
+          if (!matchesSuggestionFilter(!!decided, reviewFilter)) continue;
+          const point = editor.document.positionAt(c.pos), md = new vscode.MarkdownString().appendMarkdown(`**${c.kind === 'insert' ? 'Suggested insertion' : 'Suggested deletion'}**`).appendText([c.author, shortDateTime(c.timestamp)].filter(Boolean).map(text => ` · ${text}`).join('')).appendMarkdown('\n\n').appendText(c.text).appendMarkdown('\n\n');
+          const args = commandArgs([{ path, value: c.id }]);
           md.appendMarkdown(`${decided ? `*${decided === 'accept' ? 'Accept' : 'Reject'} on send* · ` : ''}[$(check) ${decided === 'accept' ? 'Undo accept' : 'Accept'}](command:turnleaf.acceptChange?${args}) · [$(close) ${decided === 'reject' ? 'Undo reject' : 'Reject'}](command:turnleaf.rejectChange?${args})`);
           md.supportThemeIcons = true; md.isTrusted = { enabledCommands: ['turnleaf.acceptChange', 'turnleaf.rejectChange'] };
           if (c.kind === 'insert') inserts.push({ range: new vscode.Range(point, editor.document.positionAt(c.pos + c.text.length)), hoverMessage: md });
           // Like Overleaf: the suggested deletion stays readable, struck through.
           else markers.push({ range: new vscode.Range(point, point), hoverMessage: md, renderOptions: { before: { contentText: (c.text.length > 80 ? c.text.slice(0, 79) + '…' : c.text).replace(/\n/g, ' ⏎ '), textDecoration: 'line-through', color: new vscode.ThemeColor('turnleaf.removedForeground'), backgroundColor: new vscode.ThemeColor('turnleaf.removedTextBackground') } } });
         }
+        nextDecorated.comments += options.length; nextDecorated.insertions += inserts.length; nextDecorated.deletions += markers.length;
         editor.setDecorations(highlight, options); editor.setDecorations(insertion, inserts); editor.setDecorations(marker, markers);
       }
+      decorated = nextDecorated;
       followEditor(vscode.window.activeTextEditor); paintStatus();
     } catch (error) { if (s === service && i === inspection) throw error; }
   }
@@ -1041,7 +1050,12 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
   register('toggleReviewFilter', async arg => {
     if (!(arg?.value in reviewFilterDefault)) return;
     const kind = arg.value as keyof ReviewFilter;
-    reviewFilter = { ...reviewFilter, [kind]: !reviewFilter[kind] }; await context.workspaceState.update('turnleaf.reviewFilter', reviewFilter); renderPanel();
+    reviewFilter = { ...reviewFilter, [kind]: !reviewFilter[kind] }; await context.workspaceState.update('turnleaf.reviewFilter', reviewFilter);
+    if (revealedThread) {
+      const row = rows.find(r => r.thread.id === revealedThread), pending = projectData.pending.some(draft => draft.threadId === revealedThread);
+      if (!row || !matchesThreadFilter(row.thread.resolved, pending, reviewFilter)) revealedThread = undefined;
+    }
+    await draw(); renderPanel();
   }, 'quiet');
   register('setCommentMarkers', async arg => {
     if (!['belowParagraph', 'commentedLine'].includes(arg?.value)) return;
@@ -1053,12 +1067,12 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
     await vscode.workspace.getConfiguration('turnleaf', scope.folder.uri).update('localReviewFiles', !reviewFilesOn(), vscode.ConfigurationTarget.WorkspaceFolder);
   });
   register('toggleComments', async arg => { allComments = arg?.value === 'all' ? true : arg?.value === 'current' ? false : !allComments; renderPanel(); }, 'quiet');
-  // Off hides every comment highlight. Open comment windows are closed too, since
-  // the editor highlights an open thread's text itself.
+  // Off hides every inline review highlight (comments and suggestions). Open comment
+  // windows are closed too, since the editor highlights an open thread's text itself.
   register('toggleHighlights', async () => {
     highlightComments = !highlightComments; await context.workspaceState.update('turnleaf.highlightComments', highlightComments);
     if (!highlightComments) for (const thread of threads) thread.collapsibleState = vscode.CommentThreadCollapsibleState.Collapsed;
-    vscode.window.setStatusBarMessage(highlightComments ? 'Comment highlights on' : 'Comment highlights off', 3000);
+    vscode.window.setStatusBarMessage(highlightComments ? 'Review highlights on' : 'Review highlights off', 3000);
     await draw(); renderPanel();
   }, 'quiet');
   register('toggleOutlineMarkers', async arg => { await markers.toggle(arg?.value === 'global' || arg?.value === 'workspace' ? arg.value : undefined); renderPanel(); }, 'quiet');
@@ -1511,6 +1525,6 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
     summarySettledForTest: () => !standingBusy && !standingTimer && !sending,
     threadForTest: (id: string) => threads.find(thread => ids.get(thread) === id),
     commentingRangesForTest: commentingRanges,
-    snapshot: () => ({ threadCount: threads.length, disposedInUse: threads.filter(thread => disposedThreads.has(thread)).length, highlights: highlightComments, labels: rows.map(r => r.anchor.label), panel: !!panel, sidebar: !!overview, cached, state: stateLabel(), activePath: lastSource && service ? relative(service.root, lastSource.document.uri.fsPath).replace(/\\/g, '/') : undefined, preview: prepared && { id: prepared.id, kind: prepared.kind, stale: prepared.stale, complete: prepared.complete, files: previewFiles().length, pictures: previewPictures()?.map(f => f.path) ?? [] } }),
+    snapshot: () => ({ threadCount: threads.length, disposedInUse: threads.filter(thread => disposedThreads.has(thread)).length, highlights: highlightComments, decorations: { ...decorated }, labels: rows.map(r => r.anchor.label), panel: !!panel, sidebar: !!overview, cached, state: stateLabel(), activePath: lastSource && service ? relative(service.root, lastSource.document.uri.fsPath).replace(/\\/g, '/') : undefined, preview: prepared && { id: prepared.id, kind: prepared.kind, stale: prepared.stale, complete: prepared.complete, files: previewFiles().length, pictures: previewPictures()?.map(f => f.path) ?? [] } }),
   };
 }

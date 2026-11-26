@@ -7,8 +7,8 @@ Turnleaf shows the comments and suggestions of the linked Overleaf project in th
 The **Review** tab in the sidebar lists comments and suggestions as cards, grouped by file and sorted by line. The bar at the top shows how many comments are open and how many suggestions there are.
 
 - **Current file** / **All files** chooses whether the list follows the source file you are editing (including split editors) or shows every selected file.
-- **Highlights** turns the highlighting of commented text in the editor on or off. The choice is kept for the workspace.
-- The chips **Open**, **Resolved**, **Suggestions** and **Going out** choose what the list shows, each with its count. **Going out** means threads and suggestions with a change waiting for Send. An item shows when any of its kinds is on. **Resolved** starts off; the choice is kept for the workspace.
+- **Highlights** turns inline editor highlights for the selected review items (commented text, suggested insertions and struck-through suggested deletions) on or off. The choice is kept for the workspace.
+- The chips **Open**, **Resolved**, **Suggestions** and **Going out** choose what both the list and the editor show, each with its count. **Going out** means threads and suggestions with a change waiting for Send. An item shows when any of its kinds is on. **Resolved** starts off; the choice is kept for the workspace.
 - **Comment** starts a new comment on the text selected in the editor (see [New comments](#new-comments)).
 
 Each comment card shows the author, the date, the line (for example **L42**) and a button to resolve or reopen the thread. Badges appear only for exceptions: **Pending send**, **Resolved**, a comment whose text was deleted, or a local status such as addressed or declined. A comment whose text was deleted on Overleaf shows **near L42** and the text it was on; the thread is kept, and you can reply, resolve or delete it as usual.
@@ -23,7 +23,7 @@ Click a card to select it and open its thread in the editor. The selected card h
 
 ## Markers and highlights in the editor
 
-Each comment has a marker in the gutter, with distinct markers for open, resolved and new comments. Click a marker to open the thread; click it again to close it. Commented text is highlighted with a light background and underline while **Highlights** is on. Highlights and markers follow your typing; nothing is sent to Overleaf while you type.
+Each comment matching the active chips (**Open**, **Resolved**, **Going out**) has a marker in the gutter, with distinct markers for open, resolved and new comments. Click a marker to open the thread; click it again to close it. Commented text is highlighted with a light background and underline while **Highlights** is on; opening a hidden thread from **Show in editor** still reveals it in the editor. Highlights and markers follow your typing; nothing is sent to Overleaf while you type.
 
 Hover over commented text to see the first message, the date and the number of replies, with **Open thread**, **Reply** and **Resolve on send** (or **Reopen on send**) links.
 
@@ -60,7 +60,7 @@ Each change appears in the outgoing summary, where you can unfold it, edit its t
 
 ## Suggestions
 
-Overleaf's suggestions (tracked changes) are shown in the text: suggested insertions are part of the text and highlighted, suggested deletions are shown struck through. The text Turnleaf fetches includes suggested insertions and leaves out suggested deletions.
+Overleaf's suggestions (tracked changes) are shown in the text while **Highlights** and **Suggestions** (or **Going out** for decided suggestions) are on: suggested insertions are part of the text and highlighted, and suggested deletions are shown struck through. The text Turnleaf fetches includes suggested insertions and leaves out suggested deletions, even when their highlights are hidden.
 
 To decide a suggestion:
 

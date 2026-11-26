@@ -2,6 +2,13 @@
 
 All notable user-facing changes to Turnleaf are listed here, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.10.4
+
+### Changed
+
+- Editor highlights and gutter comment markers now follow the **Review** tab filter chips (**Open**, **Resolved**, **Suggestions** and **Going out**). Resolved comments stay out of the editor while **Resolved** is off, and turning **Suggestions** off hides suggested insertions and struck-through deletions.
+- The **Highlights** switch (**Turnleaf: Toggle Review Highlights**) now hides or shows inline highlights for all selected review items (both commented text and suggestions) while keeping gutter markers for the active comment categories. Explicitly opening a filtered-out thread (such as from **Show in editor**) still reveals it in the editor.
+
 ## 0.10.3
 
 ### Added
