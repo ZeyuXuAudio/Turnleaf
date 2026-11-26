@@ -37,6 +37,14 @@ Cursor draws a gutter marker on every wrapped row of its line, which crowds long
 
 Choose **On the commented line** in **Setup → Project setup → Comment appearance** to keep every marker on its line. The same choice is the `turnleaf.commentMarkers` setting. With word wrap off, markers are always on the commented line.
 
+"Word wrap on" means the `editor.wordWrap` setting is not `off`. Turnleaf cannot see **View: Toggle Word Wrap** (Option+Z on macOS, Alt+Z elsewhere): the toggle changes only the open file, the setting stays `off`, and markers stay on the commented line. To get markers below the paragraph, turn word wrap on in your settings, for example for LaTeX files only:
+
+```json
+"[latex]": { "editor.wordWrap": "on" }
+```
+
+Option+Z / Alt+Z still works after that. Toggling wrap off for a file leaves its markers on the blank lines, where they are not repeated.
+
 ### Outline markers
 
 Linked workspaces start with clear outline comment markers and a transparent gutter. They come from the "Turnleaf outline comments" product icon theme, which changes only the comment icons; other icons use the editor's defaults.

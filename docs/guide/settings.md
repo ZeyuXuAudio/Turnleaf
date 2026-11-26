@@ -29,7 +29,7 @@ The **Updates** menu in the **Sync** tab sets `turnleaf.liveUpdates` and `turnle
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `turnleaf.commentMarkers` | `"belowParagraph"` | Where comment markers go in the gutter while word wrap is on. `belowParagraph`: on the blank line under the commented line; without a blank line there, no marker while **Highlights** is on (with it off, the marker stays on the commented line). `commentedLine`: on the line where the comment ends, repeated on each wrapped row. With word wrap off, markers stay on the commented line. |
+| `turnleaf.commentMarkers` | `"belowParagraph"` | Where comment markers go in the gutter while word wrap is on. `belowParagraph`: on the blank line under the commented line; without a blank line there, no marker while **Highlights** is on (with it off, the marker stays on the commented line). `commentedLine`: on the line where the comment ends, repeated on each wrapped row. With word wrap off, markers stay on the commented line. Word wrap counts as on when `editor.wordWrap` is not `off`; **View: Toggle Word Wrap** (Option+Z / Alt+Z) is not detected, see [Comments](comments.md#where-markers-go-with-word-wrap-on). |
 | `turnleaf.localReviewFiles` | `true` | Keep the comments as files under `.turnleaf/projects/<key>/review/`, where AI agents and scripts can read them and queue replies, resolutions and new comments. Off imports what was saved there and removes the folder; queued drafts stay. See [Review files for AI agents and scripts](review-files-for-agents.md). |
 | `turnleaf.reviewLogPath` | `"docs/overleaf_review_log.md"` | Where **Export Review Log** writes. The export overwrites this file. |
 
