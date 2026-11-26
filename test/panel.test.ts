@@ -442,11 +442,19 @@ test('the Setup tab has a switch for comment files for AI agents and scripts', (
   assert.equal(elements(projectContent(view({ reviewFiles: false }))).find(n => n.attribs['data-command'] === 'toggleReviewFiles')!.attribs['aria-checked'], 'false');
 });
 
-test('Comment appearance offers markers below the paragraph or on the commented line', () => {
+test('Review appearance offers markers below the paragraph or on the commented line', () => {
   const pressed = (value: ProjectView) => elements(projectContent(value)).filter(n => n.attribs['data-command'] === 'setCommentMarkers').map(n => [n.attribs['data-value'], n.attribs['aria-pressed']]);
   assert.deepEqual(pressed(view({})), [['belowParagraph', 'true'], ['commentedLine', 'false']]);
   assert.deepEqual(pressed(view({ commentMarkers: 'commentedLine' })), [['belowParagraph', 'false'], ['commentedLine', 'true']]);
   assert.match(projectContent(view({})), /hover it to open the thread/);
+});
+
+test('Review appearance offers three ways to show suggested deletions', () => {
+  const pressed = (value: ProjectView) => elements(projectContent(value)).filter(n => n.attribs['data-command'] === 'setDeletionDisplay').map(n => [n.attribs['data-value'], n.attribs['aria-pressed']]);
+  assert.deepEqual(pressed(view({})), [['inline', 'true'], ['marker', 'false'], ['inlayHint', 'false']]);
+  assert.deepEqual(pressed(view({ deletionDisplay: 'marker' })), [['inline', 'false'], ['marker', 'true'], ['inlayHint', 'false']]);
+  assert.deepEqual(pressed(view({ deletionDisplay: 'inlayHint' })), [['inline', 'false'], ['marker', 'false'], ['inlayHint', 'true']]);
+  assert.match(projectContent(view({})), /can run past the editor/);
 });
 
 test('waiting comment changes put the blocking one first, link to their place and fold long text', () => {

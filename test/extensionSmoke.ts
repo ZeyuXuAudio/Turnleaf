@@ -388,7 +388,35 @@ export async function run(): Promise<void> {
     assert.equal(api.reviewThread('c1')?.collapsibleState, vscode.CommentThreadCollapsibleState.Collapsed);
     await vscode.commands.executeCommand('turnleaf.toggleHighlights'); assert.equal(api.reviewSnapshot().highlights, true);
     const defaultDecorations = api.reviewSnapshot().decorations;
-    assert(defaultDecorations.comments > 0 && defaultDecorations.insertions > 0 && defaultDecorations.deletions > 0, 'Highlights on shows decorations for the selected review items');
+    // Suggested deletions can be a marker or an inlay hint, which word wrap counts; inlay hints turned off show the marker.
+    const struckHints = async () => {
+      let count = 0;
+      for (const e of vscode.window.visibleTextEditors) {
+        const hints = await vscode.commands.executeCommand<vscode.InlayHint[]>('vscode.executeInlayHintProvider', e.document.uri, new vscode.Range(0, 0, e.document.lineCount, 0)) ?? [];
+        count += hints.filter(h => (typeof h.label === 'string' ? h.label : h.label.map(part => part.value).join('')).includes('\u0336')).length;
+      }
+      return count;
+    };
+    const waitForHints = async (expected: number, label: string) => {
+      for (let attempt = 0; attempt < 50 && await struckHints() !== expected; attempt++) await new Promise(resolve => setTimeout(resolve, 100));
+      assert.equal(await struckHints(), expected, label);
+    };
+    assert.equal(await struckHints(), 0, 'Struck-through deletions add no inlay hints');
+    await vscode.commands.executeCommand('turnleaf.setDeletionDisplay', { value: 'inlayHint' });
+    await waitForHints(defaultDecorations.deletions, 'Each suggested deletion is an inlay hint');
+    assert.deepEqual(api.reviewSnapshot().decorations, defaultDecorations);
+    await vscode.workspace.getConfiguration('editor').update('inlayHints.enabled', 'off', vscode.ConfigurationTarget.Global);
+    await waitForHints(0, 'Inlay hints turned off show the marker instead');
+    assert.deepEqual(api.reviewSnapshot().decorations, defaultDecorations, 'The marker stands for every suggested deletion');
+    await vscode.workspace.getConfiguration('editor').update('inlayHints.enabled', undefined, vscode.ConfigurationTarget.Global);
+    await waitForHints(defaultDecorations.deletions, 'Inlay hints come back with the editor setting');
+    await vscode.commands.executeCommand('turnleaf.setDeletionDisplay', { value: 'marker' });
+    await waitForHints(0, 'The marker adds no inlay hints');
+    assert.deepEqual(api.reviewSnapshot().decorations, defaultDecorations);
+    assert.equal(vscode.workspace.getConfiguration('turnleaf', folder.uri).inspect('deletionDisplay')?.workspaceFolderValue, 'marker', 'The choice is kept for the folder');
+    await vscode.workspace.getConfiguration('turnleaf', folder.uri).update('deletionDisplay', undefined, vscode.ConfigurationTarget.WorkspaceFolder);
+    await waitFor(() => api.reviewSnapshot().decorations.deletions === defaultDecorations.deletions, 'Struck-through deletions return');
+    assert(defaultDecorations.comments > 0 && defaultDecorations.insertions > 0 && defaultDecorations.deletions > 0, `Highlights on shows decorations for the selected review items: ${JSON.stringify(defaultDecorations)}`);
     // Review filter chips control both editor gutter markers and highlights.
     assert.equal(api.reviewThread('c2'), undefined, 'Resolved thread stays hidden while Resolved is off');
     await vscode.commands.executeCommand('turnleaf.toggleReviewFilter', { value: 'resolved' });

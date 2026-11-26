@@ -35,13 +35,13 @@ Cursor draws a gutter marker on every wrapped row of its line, which crowds long
 - Without a blank line there, and with **Highlights** on, there is no marker. The highlighted text shows the comment, and **Open thread** in its hover (or the sidebar) opens it; the marker then stays until another comment is opened.
 - With **Highlights** off, the marker still goes on the blank line under the commented line when there is one; otherwise it stays on the commented line, as it does for a comment whose text was deleted.
 
-Choose **On the commented line** in **Setup → Project setup → Comment appearance** to keep every marker on its line. The same choice is the `turnleaf.commentMarkers` setting. With word wrap off, markers are always on the commented line.
+Choose **On the commented line** in **Setup → Project setup → Review appearance** to keep every marker on its line. The same choice is the `turnleaf.commentMarkers` setting. With word wrap off, markers are always on the commented line.
 
 ### Outline markers
 
 Linked workspaces start with clear outline comment markers and a transparent gutter. They come from the "Turnleaf outline comments" product icon theme, which changes only the comment icons; other icons use the editor's defaults.
 
-**Restore editor markers** in **Comment appearance** brings back your previous appearance and keeps that choice. **Use outline comment markers** turns them on again, and also repairs markers that look like solid blocks.
+**Restore editor markers** in **Review appearance** brings back your previous appearance and keeps that choice. **Use outline comment markers** turns them on again, and also repairs markers that look like solid blocks.
 
 ## Working with threads
 
@@ -61,6 +61,12 @@ Each change appears in the outgoing summary, where you can unfold it, edit its t
 ## Suggestions
 
 Overleaf's suggestions (tracked changes) are shown in the text while **Highlights** and **Suggestions** (or **Going out** for decided suggestions) are on: suggested insertions are part of the text and highlighted, and suggested deletions are shown struck through. The text Turnleaf fetches includes suggested insertions and leaves out suggested deletions, even when their highlights are hidden.
+
+Word wrap does not count struck-through deleted text, so with word wrap on (**View: Toggle Word Wrap**), a wrapped row that carries a long deletion runs past the editor's edge and its end is hidden. To avoid this, choose another way to show suggested deletions under **Suggested deletions** in **Setup → Project setup → Review appearance**, with **Turnleaf: Change How Suggested Deletions Are Shown**, or with the `turnleaf.deletionDisplay` setting:
+
+- **Struck through** (default): the deleted text, struck through, at the deletion point.
+- **Marker**: the character at the deletion point is marked and no text is added, so word wrap is unchanged. Hover the mark to see the deleted text and to accept or reject it.
+- **Inlay hint**: the deleted text as an inlay hint, which word wrap counts. It uses your inlay hint colors and font size, and the strike is drawn character by character. Where `editor.inlayHints.enabled` hides inlay hints, the marker is shown instead.
 
 To decide a suggestion:
 

@@ -70,7 +70,7 @@ A dot on the **Sync** tab means checks are failing. Turnleaf retries with growin
 
 ## Comment markers look like solid blocks
 
-Open **Setup → Project setup → Comment appearance** and choose **Use outline comment markers**; this repairs their colors. **Restore editor markers** returns to the editor's own markers.
+Open **Setup → Project setup → Review appearance** and choose **Use outline comment markers**; this repairs their colors. **Restore editor markers** returns to the editor's own markers.
 
 ## Community Edition and Server Pro
 

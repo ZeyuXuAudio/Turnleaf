@@ -24,6 +24,7 @@ import { ReviewDiffDecorations } from './diffDecorations';
 import { markerStyle } from './markerStyle';
 import { historyPage, threadText } from './history';
 import { shortDateTime } from './format';
+import { DeletionDisplay, deletionDisplay, deletionDisplays, deletionPreview, drawnDeletionDisplay, struckThrough } from './deletionDisplay';
 import { LocalReviewFiles } from '../core/reviewFiles';
 import { FRESHNESS, LOCAL_APPLIED, REVIEW_FILES_IMPORTED, SENT_VERIFIED, UNDO_SENT_VERIFIED, commentNote, diffSides, diffTabTitle, diffTitle, stateLabel as syncStateLabel, statusText } from './syncText';
 
@@ -54,6 +55,12 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
   const highlight = vscode.window.createTextEditorDecorationType({ backgroundColor: new vscode.ThemeColor('turnleaf.commentBackground'), borderColor: new vscode.ThemeColor('turnleaf.commentBorder'), borderStyle: 'solid', borderWidth: '0 0 1px 0', overviewRulerColor: new vscode.ThemeColor('editorInfo.foreground'), overviewRulerLane: vscode.OverviewRulerLane.Right, rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed });
   const insertion = vscode.window.createTextEditorDecorationType({ backgroundColor: new vscode.ThemeColor('diffEditor.insertedTextBackground'), overviewRulerColor: new vscode.ThemeColor('gitDecoration.addedResourceForeground') });
   const marker = vscode.window.createTextEditorDecorationType({});
+  // `marker` deletion display: the character at the deletion point gets a bar on the side
+  // that faces the deletion. A box shadow takes no room, so word wrap is unchanged.
+  const pointMark = (side: 'left' | 'right') => vscode.window.createTextEditorDecorationType({ backgroundColor: new vscode.ThemeColor('turnleaf.removedTextBackground'), textDecoration: `none; box-shadow: inset ${side === 'left' ? '' : '-'}2px 0 0 var(--vscode-turnleaf-removedForeground)`, overviewRulerColor: new vscode.ThemeColor('turnleaf.removedForeground'), overviewRulerLane: vscode.OverviewRulerLane.Right });
+  const deletionAfter = pointMark('left'), deletionBefore = pointMark('right');
+  // `inlayHint` deletion display: the hints the provider returns, per document, from the last draw.
+  const deletionHints = new Map<string, vscode.InlayHint[]>(), deletionHintsChanged = new vscode.EventEmitter<void>();
   const previewColors = new ReviewDiffDecorations();
   const markers = markerStyle(context);
   const ids = new WeakMap<vscode.CommentThread, string>();
@@ -201,12 +208,12 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
     cache = { schema: 1, anchors: {} }; reviews = {}; author = undefined; session = keep ? 'valid' : 'unknown'; configurationVersion++;
     projectData = { schema: 2, anchors: {}, reviews: {}, pending: [] };
     threads.splice(0).forEach(dropThread); updateCommentingRanges(); prepared = undefined; resolutionPaths.clear(); closeLive();
-    selectedThread = undefined; selectedDiff = undefined; revealedThread = undefined; decorated = { comments: 0, insertions: 0, deletions: 0 }; previewColors.clear();
+    selectedThread = undefined; selectedDiff = undefined; revealedThread = undefined; decorated = { comments: 0, insertions: 0, deletions: 0 }; previewColors.clear(); deletionHints.clear(); deletionHintsChanged.fire();
     standing = undefined; undoing = undefined; standingInputs = undefined; standingRun++; standingBusy = false; clearTimeout(standingTimer); standingTimer = undefined; lastSent = undefined; lastReport = undefined;
     poller.configure(0);
     checkedAt = undefined; freshness = FRESHNESS.unchecked; renderPanel();
     if (debounce) clearTimeout(debounce);
-    for (const e of vscode.window.visibleTextEditors) for (const type of [highlight, insertion, marker]) e.setDecorations(type, []);
+    for (const e of vscode.window.visibleTextEditors) for (const type of [highlight, insertion, marker, deletionAfter, deletionBefore]) e.setDecorations(type, []);
   }
   async function texts(): Promise<Record<string, string>> {
     const s = service!, values: Record<string, string> = {};
@@ -359,10 +366,12 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
       }
       previousThreads.forEach(dropThread); threads = nextThreads; updateCommentingRanges();
       const nextDecorated = { comments: 0, insertions: 0, deletions: 0 };
+      deletionHints.clear();
       for (const editor of vscode.window.visibleTextEditors) {
         const path = relative(s.root, editor.document.uri.fsPath).replace(/\\/g, '/'), map = mappings.get(path);
         const selected = rows.filter(r => r.path === path && threadVisible(r));
-        const options: vscode.DecorationOptions[] = [], markers: vscode.DecorationOptions[] = [];
+        const options: vscode.DecorationOptions[] = [], markers: vscode.DecorationOptions[] = [], afterPoint: vscode.DecorationOptions[] = [], beforePoint: vscode.DecorationOptions[] = [], hints: vscode.InlayHint[] = [];
+        const display = drawnDeletionDisplay(deletionDisplaySetting(), vscode.workspace.getConfiguration('editor', editor.document).get('inlayHints.enabled'));
         for (const row of selected) {
           if (!highlightComments) continue;
           for (const r of row.anchor.ranges.filter(r => r.length > 0)) options.push({ range: new vscode.Range(editor.document.positionAt(r.pos), editor.document.positionAt(r.pos + r.length)), hoverMessage: hover(row) });
@@ -377,13 +386,26 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
           md.appendMarkdown(`${decided ? `*${decided === 'accept' ? 'Accept' : 'Reject'} on send* · ` : ''}[$(check) ${decided === 'accept' ? 'Undo accept' : 'Accept'}](command:turnleaf.acceptChange?${args}) · [$(close) ${decided === 'reject' ? 'Undo reject' : 'Reject'}](command:turnleaf.rejectChange?${args})`);
           md.supportThemeIcons = true; md.isTrusted = { enabledCommands: ['turnleaf.acceptChange', 'turnleaf.rejectChange'] };
           if (c.kind === 'insert') inserts.push({ range: new vscode.Range(point, editor.document.positionAt(c.pos + c.text.length)), hoverMessage: md });
+          else if (display === 'inlayHint') {
+            const hint = new vscode.InlayHint(point, struckThrough(deletionPreview(c.text)));
+            hint.tooltip = md; hints.push(hint);
+          } else if (display === 'marker') {
+            // The character after the deletion point; at a line end, the one before it.
+            const line = editor.document.lineAt(point.line).text;
+            if (point.character < line.length) afterPoint.push({ range: new vscode.Range(point, point.translate(0, 1)), hoverMessage: md });
+            else if (point.character > 0) beforePoint.push({ range: new vscode.Range(point.translate(0, -1), point), hoverMessage: md });
+            // An empty line never wraps, so a thin bar there costs no room that matters.
+            else markers.push({ range: new vscode.Range(point, point), hoverMessage: md, renderOptions: { before: { contentText: '\u200b', width: '2px', backgroundColor: new vscode.ThemeColor('turnleaf.removedForeground') } } });
+          }
           // Like Overleaf: the suggested deletion stays readable, struck through.
-          else markers.push({ range: new vscode.Range(point, point), hoverMessage: md, renderOptions: { before: { contentText: (c.text.length > 80 ? c.text.slice(0, 79) + '…' : c.text).replace(/\n/g, ' ⏎ '), textDecoration: 'line-through', color: new vscode.ThemeColor('turnleaf.removedForeground'), backgroundColor: new vscode.ThemeColor('turnleaf.removedTextBackground') } } });
+          else markers.push({ range: new vscode.Range(point, point), hoverMessage: md, renderOptions: { before: { contentText: deletionPreview(c.text), textDecoration: 'line-through', color: new vscode.ThemeColor('turnleaf.removedForeground'), backgroundColor: new vscode.ThemeColor('turnleaf.removedTextBackground') } } });
         }
-        nextDecorated.comments += options.length; nextDecorated.insertions += inserts.length; nextDecorated.deletions += markers.length;
+        nextDecorated.comments += options.length; nextDecorated.insertions += inserts.length; nextDecorated.deletions += markers.length + afterPoint.length + beforePoint.length + hints.length;
         editor.setDecorations(highlight, options); editor.setDecorations(insertion, inserts); editor.setDecorations(marker, markers);
+        editor.setDecorations(deletionAfter, afterPoint); editor.setDecorations(deletionBefore, beforePoint);
+        if (hints.length) deletionHints.set(editor.document.uri.toString(), hints);
       }
-      decorated = nextDecorated;
+      decorated = nextDecorated; deletionHintsChanged.fire();
       followEditor(vscode.window.activeTextEditor); paintStatus();
     } catch (error) { if (s === service && i === inspection) throw error; }
   }
@@ -395,6 +417,7 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
   // Cursor draws a thread's marker on every wrapped row of the line where its range ends.
   // Below the paragraph: the range ends on the blank line after the commented line. When
   // there is none, the comment has no marker until opened; its highlight shows it.
+  const deletionDisplaySetting = () => deletionDisplay(config().get('deletionDisplay'));
   const markersBelow = (doc: vscode.TextDocument) => config().get<string>('commentMarkers', 'belowParagraph') === 'belowParagraph' && vscode.workspace.getConfiguration('editor', doc).get<string>('wordWrap', 'off') !== 'off';
   function markerRange(row: ReviewRow, doc: vscode.TextDocument): vscode.Range | undefined {
     const range = rowRange(row, doc);
@@ -920,7 +943,7 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
       version: context.extension.packageJSON.version, suggestionRows: suggestionRows.filter(s => allComments || s.path === path),
       outgoing: outgoingView(), undo: undoView(), undoLatest: lastSent && note === lastSent.note && !undoing && !p ? lastSent.id : undefined,
       detail: panel ? threadDetail(rows.find(r => r.thread.id === selectedThread)) : undefined,
-      openComments: rows.filter(r => !r.thread.resolved).length, suggestions: inspection?.docs.reduce((n, d) => n + d.changes.length, 0) ?? 0, selectedThread, highlightComments, outlineMarkers: markers.enabled(), userId: inspection?.userId, reviewFilter, reviewFiles: reviewFilesOn(), commentMarkers: config().get<string>('commentMarkers', 'belowParagraph') === 'commentedLine' ? 'commentedLine' : 'belowParagraph',
+      openComments: rows.filter(r => !r.thread.resolved).length, suggestions: inspection?.docs.reduce((n, d) => n + d.changes.length, 0) ?? 0, selectedThread, highlightComments, outlineMarkers: markers.enabled(), userId: inspection?.userId, reviewFilter, reviewFiles: reviewFilesOn(), commentMarkers: config().get<string>('commentMarkers', 'belowParagraph') === 'commentedLine' ? 'commentedLine' : 'belowParagraph', deletionDisplay: deletionDisplaySetting(),
       preview: p && { id: p.id, stale: p.stale, complete: p.complete, files: previewFiles(p), pictures: previewPictures(p), comments: p.plan.comments, selectedPath: selectedDiff } };
   }
   const unsavedNames = () => service ? dirtyTracked(service).map(d => isReviewFile(service!, d.uri) ? 'comment JSON' : relative(service!.root, d.uri.fsPath).replace(/\\/g, '/')) : [];
@@ -998,7 +1021,7 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
     context.subscriptions.push(webview.onDidReceiveMessage(message => {
       if (message?.ready === true) { posted.delete(webview); renderPanel(); return; }
       if (typeof message?.id === 'string' && rows.some(r => r.thread.id === message.id)) void vscode.commands.executeCommand('turnleaf.openThread', message.id);
-      if (['signIn', 'signInWithCookie', 'signOut', 'linkProject', 'openWalkthrough', 'configureFiles', 'enableWrites', 'refreshComments', 'pull', 'push', 'send', 'saveAll', 'openOutgoingDiff', 'undoSend', 'sendUndo', 'cancelUndo', 'sendReviewed', 'applyReviewed', 'applyAndReview', 'openPreviewDiff', 'cancelPreview', 'resolveConflict', 'useResolution', 'useRemoteVersion', 'keepLocalVersion', 'reviewDetails', 'recoverLocalApply', 'checkRemote', 'setCheckInterval', 'setSendCheck', 'toggleComments', 'toggleHighlights', 'toggleOutlineMarkers', 'showReviewPanel', 'openOverleaf', 'showSyncHistory', 'openReviewFiles', 'toggleReviewFiles', 'toggleReviewFilter', 'setCommentMarkers', 'editDraft', 'discardDraft', 'reattachDraft', 'newComment', 'reply', 'resolve', 'reopen', 'openThread', 'openSuggestion', 'acceptChange', 'rejectChange', 'acceptAllChanges', 'rejectAllChanges', 'decideAuthorChanges', 'editMessage', 'deleteMessage'].includes(message?.command)) void vscode.commands.executeCommand(`turnleaf.${message.command}`, { path: message.path, preview: message.preview, value: message.value, ...typeof message.text === 'string' && { text: message.text }, ...typeof message.message === 'string' && { message: message.message } });
+      if (['signIn', 'signInWithCookie', 'signOut', 'linkProject', 'openWalkthrough', 'configureFiles', 'enableWrites', 'refreshComments', 'pull', 'push', 'send', 'saveAll', 'openOutgoingDiff', 'undoSend', 'sendUndo', 'cancelUndo', 'sendReviewed', 'applyReviewed', 'applyAndReview', 'openPreviewDiff', 'cancelPreview', 'resolveConflict', 'useResolution', 'useRemoteVersion', 'keepLocalVersion', 'reviewDetails', 'recoverLocalApply', 'checkRemote', 'setCheckInterval', 'setSendCheck', 'toggleComments', 'toggleHighlights', 'toggleOutlineMarkers', 'showReviewPanel', 'openOverleaf', 'showSyncHistory', 'openReviewFiles', 'toggleReviewFiles', 'toggleReviewFilter', 'setCommentMarkers', 'setDeletionDisplay', 'editDraft', 'discardDraft', 'reattachDraft', 'newComment', 'reply', 'resolve', 'reopen', 'openThread', 'openSuggestion', 'acceptChange', 'rejectChange', 'acceptAllChanges', 'rejectAllChanges', 'decideAuthorChanges', 'editMessage', 'deleteMessage'].includes(message?.command)) void vscode.commands.executeCommand(`turnleaf.${message.command}`, { path: message.path, preview: message.preview, value: message.value, ...typeof message.text === 'string' && { text: message.text }, ...typeof message.message === 'string' && { message: message.message } });
     }));
   }
   async function showOverview() {
@@ -1061,6 +1084,18 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
     if (!['belowParagraph', 'commentedLine'].includes(arg?.value)) return;
     const scope = await host.scope();
     await vscode.workspace.getConfiguration('turnleaf', scope.folder.uri).update('commentMarkers', arg.value, vscode.ConfigurationTarget.WorkspaceFolder);
+  }, 'quiet');
+  register('setDeletionDisplay', async arg => {
+    const choices: Array<vscode.QuickPickItem & { value: DeletionDisplay }> = [
+      { value: 'inline', label: 'Struck-through text', detail: 'The deleted text, struck through. Word wrap does not count it, so a wrapped row can run past the editor\'s edge.' },
+      { value: 'marker', label: 'Marker', detail: 'Marks the deletion point and adds no text; the hover shows the deleted text. For word wrap.' },
+      { value: 'inlayHint', label: 'Inlay hint', detail: 'The deleted text as an inlay hint, which word wrap counts. Uses your inlay hint colors; with inlay hints off, the marker is shown.' },
+    ];
+    const current = deletionDisplaySetting();
+    const value = deletionDisplays.includes(arg?.value) ? arg.value as DeletionDisplay : (await vscode.window.showQuickPick(choices.map(c => ({ ...c, description: c.value === current ? 'current' : undefined })), { title: 'Show suggested deletions as' }))?.value;
+    if (!value) return;
+    const scope = await host.scope();
+    await vscode.workspace.getConfiguration('turnleaf', scope.folder.uri).update('deletionDisplay', value, vscode.ConfigurationTarget.WorkspaceFolder);
   }, 'quiet');
   register('toggleReviewFiles', async () => {
     const scope = await host.scope();
@@ -1461,7 +1496,8 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
     if (s.state.syncPictures() && (isPicture(path) && !path.startsWith('.turnleaf/') || /^\.turnleaf\/projects\/[0-9a-f]+\/pictures\.json$/.test(path))) scheduleStanding(true);
     if (path === '.turnleaf/review-state.json') void s.state.reviews().then(value => { if (service === s) { reviews = value; scheduleDraw(); } }).catch(error => host.output.appendLine(safeError(error)));
   };
-  context.subscriptions.push(controller, highlight, insertion, marker, previewColors, poller, { dispose() { disposed = true; clear(); panel?.dispose(); } },
+  context.subscriptions.push(controller, highlight, insertion, marker, deletionAfter, deletionBefore, deletionHintsChanged, previewColors, poller,
+    vscode.languages.registerInlayHintsProvider({ scheme: 'file' }, { onDidChangeInlayHints: deletionHintsChanged.event, provideInlayHints: (doc, range) => (deletionHints.get(doc.uri.toString()) ?? []).filter(hint => range.contains(hint.position)) }), { dispose() { disposed = true; clear(); panel?.dispose(); } },
     watcher, watcher.onDidChange(changedFile), watcher.onDidCreate(changedFile), watcher.onDidDelete(changedFile),
     vscode.workspace.onDidChangeTextDocument(event => {
       if (service && isReviewFile(service, event.document.uri)) {
@@ -1505,7 +1541,7 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
     vscode.workspace.onDidChangeConfiguration(e => {
       if (e.affectsConfiguration('turnleaf.allowWrites')) { invalidateReview(writes() ? 'Sending was switched on.' : 'Sending was switched off.'); void draw(); paintStatus(); }
       if (e.affectsConfiguration('turnleaf.remoteCheckInterval')) { scheduleCheck(); renderPanel(); }
-      if (e.affectsConfiguration('turnleaf.commentMarkers') || e.affectsConfiguration('editor.wordWrap')) { void draw().catch(error => host.output.appendLine(safeError(error))); renderPanel(); }
+      if (e.affectsConfiguration('turnleaf.commentMarkers') || e.affectsConfiguration('editor.wordWrap') || e.affectsConfiguration('turnleaf.deletionDisplay') || e.affectsConfiguration('editor.inlayHints.enabled')) { void draw().catch(error => host.output.appendLine(safeError(error))); renderPanel(); }
       if (e.affectsConfiguration('turnleaf.localReviewFiles')) { if (service) scheduleReviewFiles(service); renderPanel(); }
       if (e.affectsConfiguration('turnleaf.sendCheck')) { renderPanel(); void confirmFastSend(); }
       if (e.affectsConfiguration('turnleaf.liveUpdates')) { closeLive(); scheduleCheck(); if (liveEnabled()) poller.soon(500); renderPanel(); }

@@ -351,6 +351,11 @@
         "category": "Turnleaf"
       },
       {
+        "command": "turnleaf.setDeletionDisplay",
+        "title": "Change How Suggested Deletions Are Shown",
+        "category": "Turnleaf"
+      },
+      {
         "command": "turnleaf.toggleOutlineMarkers",
         "title": "Toggle Outline Comment Markers",
         "category": "Turnleaf"
@@ -448,6 +453,22 @@
             "default": "belowParagraph",
             "scope": "resource",
             "description": "Where comment markers go in the gutter while word wrap is on. Cursor draws a marker on every wrapped row of its line; with word wrap off, markers stay on the commented line."
+          },
+          "turnleaf.deletionDisplay": {
+            "type": "string",
+            "enum": [
+              "inline",
+              "marker",
+              "inlayHint"
+            ],
+            "enumDescriptions": [
+              "The deleted text, struck through, at the deletion point. Word wrap does not count it, so a wrapped row with a long deletion can run past the editor's edge.",
+              "Marks the character at the deletion point and adds no text, so word wrap is unchanged. Hover the mark to see the deleted text.",
+              "The deleted text as an inlay hint, which word wrap counts. Uses your inlay hint colors and font size; where editor.inlayHints.enabled hides inlay hints, the marker is shown instead."
+            ],
+            "default": "inline",
+            "scope": "resource",
+            "description": "How suggested deletions are shown in the editor. Choose marker or inlayHint if you use word wrap (View: Toggle Word Wrap)."
           },
           "turnleaf.localReviewFiles": {
             "type": "boolean",

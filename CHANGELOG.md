@@ -2,6 +2,16 @@
 
 All notable user-facing changes to Turnleaf are listed here, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Added
+
+- Choose how suggested deletions are shown in the editor: **Struck through** (as before), **Marker** or **Inlay hint**, under **Suggested deletions** in **Project setup → Review appearance**, with **Turnleaf: Change How Suggested Deletions Are Shown**, or with the `turnleaf.deletionDisplay` setting. Word wrap does not count struck-through deleted text, so wrapped rows with long deletions ran past the editor's edge; **Marker** adds no text, and **Inlay hint** shows the deleted text where word wrap counts it.
+
+### Changed
+
+- **Project setup → Comment appearance** is now **Review appearance**.
+
 ## 0.10.4
 
 ### Changed
