@@ -14,6 +14,7 @@ import { normalizeBaseUrl } from '../core/http';
 import { SessionExpiredError, SyncError, safeError } from '../core/errors';
 import { browserSignIn, findBrowser } from '../core/browserSignIn';
 import { withOperation } from '../core/operation';
+import { workspacePath } from '../core/storage';
 import { sendsPicture } from '../core/pictures';
 
 export interface Io { out(line: string): void; err(line: string): void; env: NodeJS.ProcessEnv; cwd: string; }
@@ -60,12 +61,14 @@ class UsageError extends Error {}
 class Blocked extends Error { constructor(message: string, readonly details: unknown = undefined) { super(message); } }
 
 interface Link { schema: 1; baseUrl: string; projectId: string; paths: string[] }
-const linkFile = (folder: string) => join(folder, '.turnleaf', 'cli.json');
+// Through the core's path check, which refuses a symbolic link on the way to the file.
+const linkFile = (folder: string) => workspacePath(folder, '.turnleaf/cli.json');
 async function readLink(folder: string): Promise<Link> {
+  const file = await linkFile(folder);
   let value: Link;
-  try { value = JSON.parse(await readFile(linkFile(folder), 'utf8')); }
-  catch (error: any) { if (error.code === 'ENOENT') throw new UsageError('This folder is not linked. Run turnleaf link <project-id> first.'); throw new SyncError(`Cannot read ${linkFile(folder)}.`, 'configuration'); }
-  if (value?.schema !== 1 || typeof value.projectId !== 'string' || !value.projectId) throw new SyncError(`Unsupported ${linkFile(folder)}.`, 'configuration');
+  try { value = JSON.parse(await readFile(file, 'utf8')); }
+  catch (error: any) { if (error.code === 'ENOENT') throw new UsageError('This folder is not linked. Run turnleaf link <project-id> first.'); throw new SyncError(`Cannot read ${file}.`, 'configuration'); }
+  if (value?.schema !== 1 || typeof value.projectId !== 'string' || !value.projectId) throw new SyncError(`Unsupported ${file}.`, 'configuration');
   return { ...value, baseUrl: normalizeBaseUrl(value.baseUrl), paths: validateTrackedFiles(value.paths) };
 }
 
@@ -172,8 +175,9 @@ export async function run(argv: string[], io: Io): Promise<number> {
             paths = (await reader.listSourceFiles(projectId)).paths.filter(path => /\.(tex|bib|sty|cls)$/i.test(path)); await keep();
           }
           const link: Link = { schema: 1, baseUrl, projectId, paths: validateTrackedFiles(paths) };
-          await mkdir(dirname(linkFile(folder)), { recursive: true, mode: 0o700 });
-          await writeFile(linkFile(folder), JSON.stringify(link, null, 2) + '\n', { mode: 0o600 });
+          // Creates .turnleaf/ with its .gitignore, so Git ignores cli.json from the start.
+          await new ProjectStore(folder, link.baseUrl, link.projectId, link.paths).init();
+          await writeFile(await linkFile(folder), JSON.stringify(link, null, 2) + '\n', { mode: 0o600 });
           print(`Linked ${folder} to ${projectId}: ${link.paths.join(', ')}`, link);
           return exitCodes.ok;
         }

@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, writeFile, rm, mkdir } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, rm, mkdir, readdir, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { run, exitCodes } from '../src/cli/turnleaf';
 import { fixtureCookie, startFixtureServer } from './fixtureServer';
+import { turnleafIgnore } from '../src/core/projectStore';
 
 async function cli(options: { trackChanges?: boolean; cookie?: string | null } = {}) {
   const fixture = await startFixtureServer({ writable: true, trackChanges: options.trackChanges ?? true });
@@ -24,6 +25,8 @@ test('cli: link, pull into an empty folder, queue a new comment from a file and 
   const c = await cli();
   try {
     assert.equal((await c.exec('link', 'test-project', '--files', 'main.tex,references.bib')).code, exitCodes.ok);
+    // Git ignores .turnleaf/ from the link on, before any pull.
+    assert.equal(await readFile(join(c.root, '.turnleaf', '.gitignore'), 'utf8'), turnleafIgnore);
     const pulled = await c.exec('pull', '--json');
     assert.equal(pulled.code, exitCodes.ok, pulled.err);
     assert.match(await readFile(join(c.root, 'main.tex'), 'utf8'), /Rain was excluded/);
@@ -111,4 +114,15 @@ test('cli: without a session it exits with the signed-out code; unknown commands
     assert.equal((await c.exec('pull')).code, exitCodes.signedOut);
     assert.equal((await c.exec('frobnicate')).code, exitCodes.usage);
   } finally { await c.close(); }
+});
+
+test('cli: link refuses a .turnleaf folder that is a symbolic link', async () => {
+  const c = await cli(), elsewhere = await mkdtemp(join(tmpdir(), 'turnleaf-cli-elsewhere-'));
+  try {
+    await symlink(elsewhere, join(c.root, '.turnleaf'));
+    const linked = await c.exec('link', 'test-project', '--files', 'main.tex');
+    assert.equal(linked.code, exitCodes.failed);
+    assert.match(linked.err, /symbolic link/);
+    assert.deepEqual(await readdir(elsewhere), []);
+  } finally { await c.close(); await rm(elsewhere, { recursive: true, force: true }); }
 });

@@ -10,6 +10,12 @@ npm run build:cli
 node dist/cli.js --help
 ```
 
+`dist/cli.js` is not installed as a `turnleaf` command. The examples below write `turnleaf` for `node /path/to/Turnleaf/dist/cli.js`; to type them as written, define it once in your shell:
+
+```sh
+alias turnleaf='node /path/to/Turnleaf/dist/cli.js'
+```
+
 ## A review round
 
 ```sh
@@ -31,7 +37,7 @@ The review files are described in [Review files for AI agents and scripts](revie
 | --- | --- |
 | `sign-in [--browser PATH] [--headless]` | Opens a Chromium-based browser at the Overleaf sign-in page and saves the session once you are signed in. |
 | `projects` | Lists the projects of the signed-in account. |
-| `link <project-id> --files a.tex,b.bib` or `--all-sources` | Links the folder to a project and chooses its `.tex`, `.bib`, `.sty` and `.cls` files. Writes `.turnleaf/cli.json`. |
+| `link <project-id> --files a.tex,b.bib` or `--all-sources` | Links the folder to a project and chooses its `.tex`, `.bib`, `.sty` and `.cls` files. Writes `.turnleaf/cli.json`, and the `.gitignore` that keeps `.turnleaf/` out of Git. |
 | `pull [--take-overleaf] [--dry-run]` | Get latest. In an empty linked folder, it downloads the selected files (and, with `--pictures`, the pictures). Later it merges Overleaf's changes. Stops if a file changed both here and on Overleaf where they overlap; `--take-overleaf` uses Overleaf's version for those files. |
 | `status` | Imports the review files and prints what Send would write, with any refusal. |
 | `send [--yes] [--dry-run] [--comments-only] [--allow-untracked-edits] [--allow-deletes]` | Send. Writes nothing without `--yes`. |
