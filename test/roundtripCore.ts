@@ -38,7 +38,8 @@ Writes to a real Overleaf project, then removes what it wrote. Only a project wh
 starts with "${NAME_PREFIX}" is written to.
 
   --project ID        The test project (or TURNLEAF_ROUNDTRIP_PROJECT).
-  --setup             Open the sign-in window first (needed once).
+  --setup             Open the sign-in window first (needed once); without --project it
+                      only signs in.
   --no-setup          Never open the sign-in window by itself.
   --no-cli            Skip the command-line leg.
   --cli               Run the command-line leg (the default).
@@ -75,6 +76,8 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = {}): Roundtri
   if (!options.extension && !options.cli) throw new UsageError('--no-extension and --no-cli leave nothing to run.');
   options.project ??= env.TURNLEAF_ROUNDTRIP_PROJECT?.trim() || (options.fixture ? fixtureProject : undefined);
   options.sessionFile ??= env.TURNLEAF_ROUNDTRIP_SESSION_FILE?.trim() || undefined;
+  // --setup alone signs in and stops: nothing is read from or written to a project.
+  if (!options.project && options.setup && options.extension) return options;
   if (!options.project) throw new UsageError('Name the test project: --project ID, or set TURNLEAF_ROUNDTRIP_PROJECT.');
   if (!options.fixture && !/^[0-9a-f]{24}$/i.test(options.project)) throw new UsageError('The project ID is the 24-character hexadecimal part of the project URL (overleaf.com/project/<ID>).');
   if (!options.extension && !options.sessionFile && !options.fixture) throw new UsageError('--no-extension needs --session-file: the command-line leg takes the session from the editor profile otherwise.');

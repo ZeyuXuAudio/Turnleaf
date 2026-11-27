@@ -30,8 +30,10 @@ test('roundtrip arguments: project from --project or the environment, legs and o
   assert.equal(parseArgs(['--project', id, '--no-extension', '--session-file', 'f']).extension, false);
   assert.equal(parseArgs(['--fixture']).project, 'test-project');
   assert.equal(parseArgs(['--help']).help, true, 'help needs no project');
+  assert.equal(parseArgs(['--setup']).project, undefined, '--setup alone only signs in');
+  assert.equal(parseArgs(['--setup'], { TURNLEAF_ROUNDTRIP_PROJECT: id }).project, id);
   for (const [argv, message] of [
-    [[], /--project ID/], [['--project'], /needs a value/], [['--project', '--setup'], /needs a value/], [['--project', 'my-paper'], /24-character/],
+    [[], /--project ID/], [['--setup', '--no-extension', '--session-file', 'f'], /--project ID/], [['--project'], /needs a value/], [['--project', '--setup'], /needs a value/], [['--project', 'my-paper'], /24-character/],
     [['--project', id, '--frobnicate'], /Unknown option/], [[id], /Unexpected argument/], [['--project', id, '--setup=yes'], /takes no value/],
     [['--project', id, '--setup', '--no-setup'], /not both/], [['--project', id, '--no-extension', '--no-cli'], /nothing to run/],
     [['--project', id, '--no-extension'], /needs --session-file/],

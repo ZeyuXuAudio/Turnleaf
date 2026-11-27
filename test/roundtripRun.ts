@@ -79,7 +79,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
     const path = join(root, 'results', `${runId}-${name}.json`);
     await rm(path, { force: true });
     const childEnv: NodeJS.ProcessEnv = { ...env, TURNLEAF_LIVE_PROBE: '1', TURNLEAF_ROUNDTRIP: '1', TURNLEAF_ROUNDTRIP_PHASE: name, TURNLEAF_ROUNDTRIP_RESULT: path,
-      TURNLEAF_ROUNDTRIP_WORKSPACE: workspace, TURNLEAF_ROUNDTRIP_PROJECT: options.project!, TURNLEAF_ROUNDTRIP_RUN: runId,
+      TURNLEAF_ROUNDTRIP_WORKSPACE: workspace, TURNLEAF_ROUNDTRIP_PROJECT: options.project ?? '', TURNLEAF_ROUNDTRIP_RUN: runId,
       ...fixtureCookie && { TURNLEAF_ROUNDTRIP_FIXTURE_COOKIE: fixtureCookie }, ...extra };
     delete childEnv.ELECTRON_RUN_AS_NODE; delete childEnv.VSCODE_IPC_HOOK_CLI;
     if (name === 'setup') console.log('In the editor window, run Turnleaf: Sign In. The window closes when you are signed in.');
@@ -113,6 +113,13 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
     }
   }
 
+  if (!options.project) {
+    // Sign-in only (--setup without a project): the session stays in the profile, nothing else runs.
+    const setup = await phase('setup');
+    await fixture?.close();
+    console.log(setup?.status === 'ready' ? 'Signed in; the session is kept in the profile. Run again with --project ID.' : 'Sign-in did not complete.');
+    return setup?.status === 'ready' ? 0 : 1;
+  }
   const steps: StepRecord[] = [];
   let stop: RunStatus | undefined, message: string | undefined, guard: PhaseResult['guard'], trackChanges: string | undefined, runtime: object | undefined;
   let ext: PhaseResult | undefined, cliResult: CliLegResult | undefined, final: PhaseResult | undefined, secrets: string[] = [];
