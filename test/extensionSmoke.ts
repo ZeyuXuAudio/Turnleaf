@@ -1,11 +1,12 @@
 import * as vscode from 'vscode';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { writeFile, readFile } from 'node:fs/promises';
+import { writeFile, readFile, mkdir, rename, rm } from 'node:fs/promises';
 import { fixtureCookie, startFixtureServer } from './fixtureServer';
 import type { TestApi } from '../src/extension/extension';
 import { ProjectStore } from '../src/core/projectStore';
 import { LocalReviewFiles, ThreadFile } from '../src/core/reviewFiles';
+import { SETTLE_MS } from '../src/core/actionLog';
 
 export async function run(): Promise<void> {
   const fixture = await startFixtureServer({ writable: true });
@@ -62,6 +63,11 @@ export async function run(): Promise<void> {
     assert.equal(Buffer.from(localText).toString(), 'Local text remains unchanged during inspection.\n');
     // Exercise the actual local review UI in an ordinary disposable folder.
     const state = new ProjectStore(folder.uri.fsPath, fixture.baseUrl, 'test-project', ['main.tex', 'references.bib']);
+    // The press record: the lines of actions.jsonl, the last finished line of a command, the output channel.
+    const records = async (): Promise<any[]> => { await api.actionsWritten(); return (await readFile(await state.path('actions.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line)); };
+    const finished = async (command = 'send') => (await records()).filter(line => line.event === 'finished' && line.command === command).at(-1);
+    const said = (pattern: RegExp) => api.outputLines().filter(line => pattern.test(line)).at(-1);
+    const notice = () => api.reviewView().outgoing?.pressNotice;
     // First sync: keep main.tex but replace references.bib with the Overleaf version.
     // Apply records both choices; the kept file is then listed as going out.
     const localReferences = 'Existing local bibliography before the first sync.\n';
@@ -99,6 +105,10 @@ export async function run(): Promise<void> {
     await vscode.commands.executeCommand('turnleaf.toggleOutlineMarkers');
     assert.equal(vscode.workspace.getConfiguration('workbench').inspect('productIconTheme')?.workspaceValue, undefined);
     await api.restoreLocal();
+    // Right after opening, before the first summary is shown, Send has nothing to act on.
+    await vscode.commands.executeCommand('turnleaf.send');
+    assert.equal((await finished()).outcome, 'no-summary');
+    assert.match(said(/^Send command/)!, /^Send command \(command, \d+\.\d+\.\d+\) — not sent: no summary shown yet$/);
     await vscode.commands.executeCommand('turnleaf.refreshComments');
     assert.notEqual(vscode.workspace.getConfiguration('workbench').get('productIconTheme'), 'turnleaf-outline', 'Restoring the workspace must not undo the appearance opt-out');
     // Manual styling is also scoped, repairable and reversible.
@@ -230,6 +240,14 @@ export async function run(): Promise<void> {
     assert.equal((await summary(o => o.comments.length === 2, 'The edit and the reply are listed as going out')).files.length, 0);
     await send();
     assert.match(api.reviewSnapshot().state, /Sent and verified/);
+    const sent = await finished(), all = await records();
+    assert.deepEqual([sent.outcome, sent.verification, sent.rows], ['sent', 'verified', 2]); assert(sent.durationMs >= 0 && sent.waitMs >= 0);
+    assert(all.some(line => line.event === 'received' && line.command === 'send'), 'Each command has a received line');
+    assert.equal(all.filter(line => line.event === 'activated').length, 1, 'One activated line per window');
+    assert(all.every(line => line.time && line.version === all[0].version && line.session === all[0].session && line.pid === all[0].pid), 'Every line carries time, version, window session and process');
+    assert.match(said(/^Send command/)!, /^Send command \(command, \d+\.\d+\.\d+\) — sent 2 rows( in [\d.]+ s)?; verified$/);
+    assert(!all.some(line => line.command === 'push') && said(/^Push command \(command, /), 'Quiet navigation commands go to the output channel only');
+    assert(!JSON.stringify(all).includes(fixtureCookie)); assert.doesNotMatch(JSON.stringify(all), /Native inline reply|survive a remote refresh|Alpha βeta/, 'No comment text or file contents in the record');
     assert(api.reviewView().undoLatest, 'A verified send offers Undo');
     assert.equal(fixture.threads.c1.messages[0].content, 'A draft that must survive a remote refresh.');
     assert.equal(fixture.threads.c1.messages.at(-1).content, 'Native inline reply.');
@@ -270,9 +288,26 @@ export async function run(): Promise<void> {
     const remoteBefore = fixture.replies.modern[0].content;
     await send().catch(() => {});
     assert.equal(fixture.replies.modern[0].content, remoteBefore, 'Send refuses while a selected file has unsaved edits');
+    assert.equal((await finished()).outcome, 'unsaved-files');
     await source.document.save();
+    // A press while the summary refreshes, and one just after it changed, send nothing and say why in the summary.
+    assert.deepEqual([api.reviewView().outgoing?.sendWait, api.reviewView().outgoing?.updating], ['refreshing', 'main.tex saved'], 'Send reads Refreshing… once the file is saved');
+    await vscode.commands.executeCommand('turnleaf.send');
+    const refreshing = await finished();
+    assert.equal(refreshing.outcome, 'summary-refreshing'); assert.match(refreshing.cause, /^main\.tex saved \d\d:\d\d:\d\d$/);
+    assert.match(said(/^Send command/)!, /— not sent: summary refreshing \(main\.tex saved \d\d:\d\d:\d\d\)$/);
+    assert.equal(notice(), 'Not sent: the summary was refreshing. Press Send again when it shows Send.');
     await summary(o => !o.unsaved && o.files.length === 1 && o.files[0].added > firstEdit.files[0].added, 'The summary follows the saved file');
+    assert.equal(notice(), undefined, 'A summary change clears the notice');
+    assert(Date.now() - api.summaryChangedAt()! < SETTLE_MS - 150, 'The summary changed just now');
+    await vscode.commands.executeCommand('turnleaf.send');
+    const soon = await finished();
+    assert.equal(soon.outcome, 'too-soon-after-summary-change'); assert(soon.changedAgoMs < SETTLE_MS); assert.match(soon.cause, /^main\.tex saved /);
+    assert.equal(notice(), 'Not sent: the summary changed just now. Check it, then press Send again.');
+    assert.equal(fixture.replies.modern[0].content, remoteBefore, 'Neither press sent');
+    assert(api.outputLines().some(line => /^Summary refresh started \(main\.tex saved /.test(line)) && said(/^Summary refresh ended: summary changed: 1 row/), 'Each refresh is logged with its trigger');
     await send();
+    assert.equal(notice(), undefined, 'The next press clears the notice');
     assert.match(api.reviewSnapshot().state, /Sent and verified/);
     assert.match(fixture.replies.modern[0].content, /Saved preview revision/);
     // Undo this send takes the edit back from Overleaf only; the local file keeps it and it goes out again.
@@ -286,8 +321,49 @@ export async function run(): Promise<void> {
     assert.equal(api.reviewView().undo, undefined);
     assert.equal((await state.history())[0].undoOf, sentRecord);
     await summary(o => o.files.length === 1, 'The edit is listed as going out again');
+    // Overleaf changes after the summary was shown: the fresh read at Send stops it and shows what changed.
+    fixture.replies.legacy[0].unshift('% A remote bibliography note.'); fixture.replies.legacy[1]++;
     await send();
+    const moved = await finished();
+    assert.deepEqual([moved.outcome, moved.overleaf], ['summary-changed', true]); assert(moved.rows >= 1);
+    assert.doesNotMatch(fixture.replies.modern[0].content, /Saved preview revision/, 'Nothing was sent');
+    assert(said(/^Summary changed: \d+ rows? differ at Send; Overleaf changed/));
+    // A press in the sidebar reaches its command: one sequence number from press to finished.
+    await summary(o => !!o.incoming && o.files.length === 1, 'The summary now applies the Overleaf change first');
+    await new Promise(resolve => setTimeout(resolve, SETTLE_MS + 50));
+    api.viewMessage('sidebar', { type: 'press', seq: 9004, command: 'send', disabled: false, detail: 1 });
+    api.viewMessage('sidebar', { type: 'release', seq: 9004, lost: false });
+    api.viewMessage('sidebar', { command: 'send', press: 9004 });
+    await waitFor(() => !!said(/^Send press \(sidebar, [^)]*\) — sent /), 'The pressed Send finishes');
+    const press = (await records()).filter(line => line.event === 'press').at(-1);
+    assert.deepEqual((await records()).filter(line => line.seq === press.seq).map(line => [line.event, line.surface, line.outcome]), [['press', 'sidebar', undefined], ['received', 'sidebar', undefined], ['finished', 'sidebar', 'sent']]);
     assert.match(fixture.replies.modern[0].content, /Saved preview revision/, 'Send puts the edit back');
+    // A press while another operation runs names it; nothing is listed afterwards, and a press says so.
+    fixture.delayThreadReads(1500);
+    const slowRefresh = vscode.commands.executeCommand('turnleaf.refreshComments');
+    await waitFor(() => api.reviewView().busy === true, 'Refresh holds the operation');
+    await vscode.commands.executeCommand('turnleaf.send');
+    assert.deepEqual([(await finished()).outcome, (await finished()).operation], ['busy', 'Refresh']);
+    assert.equal(notice(), 'Not sent: Refresh is still running. Press Send again when it has finished.');
+    fixture.delayThreadReads(0); await slowRefresh;
+    assert.equal((await finished('refreshComments')).outcome, 'done');
+    await send();
+    assert.equal((await finished()).outcome, 'nothing-to-send'); assert.equal(notice(), 'Not sent: nothing is listed to send.');
+    // Presses as the sidebar reports them: an extra click, a click lost in a redraw, a press on a disabled Send.
+    const pressEnded = async (seq: number) => (await records()).filter(line => line.event === 'press-ended' && line.seq === seq).at(-1);
+    const pressed = async () => (await records()).filter(line => line.event === 'press').at(-1);
+    api.viewMessage('sidebar', { type: 'press', seq: 9001, command: 'send', disabled: false, detail: 2 });
+    const extra = await pressed();
+    assert.deepEqual([extra.surface, extra.detail, (await pressEnded(extra.seq)).outcome], ['sidebar', 2, 'extra-click']);
+    assert.equal(notice(), 'Not sent: nothing is listed to send.', 'An extra click leaves the notice as it was');
+    assert.match(said(/^Send press \(sidebar, /)!, /— ignored: extra click of a double or triple click$/);
+    api.viewMessage('sidebar', { type: 'press', seq: 9002, command: 'send', disabled: true, detail: 1 });
+    assert.equal((await pressEnded((await pressed()).seq)).outcome, 'nothing-to-send', 'A press on a disabled Send records why it was disabled');
+    api.viewMessage('sidebar', { type: 'press', seq: 9003, command: 'send', disabled: false, detail: 1 });
+    api.viewMessage('sidebar', { type: 'release', seq: 9003, lost: true });
+    assert.equal((await pressEnded((await pressed()).seq)).outcome, 'lost-in-redraw');
+    assert.equal(notice(), 'Not sent: the panel redrew during your click. Press Send again.');
+    assert.match(said(/^Send press \(sidebar, /)!, /— not run: the panel redrew during the click$/);
     const beforeRemote = source.document.getText(); fixture.replies.modern[0].content += '\nRemote incoming revision.\n'; fixture.replies.modern[1]++;
     await vscode.commands.executeCommand('turnleaf.pull');
     assert.equal(source.document.getText(), beforeRemote, 'Get latest is preview only');
@@ -339,7 +415,13 @@ export async function run(): Promise<void> {
     assert.equal(reattached[0].anchor?.source, source.document.getText());
     assert(!fixture.threads[newDraft.threadId], 'Reattaching remains local until Send');
     await summary(o => o.comments.length === 2 && !o.blocked, 'The new comment and its reply are listed as going out');
-    await send();
+    // The record cannot be written (actions.jsonl is a folder): the Send still sends, and the output says so once.
+    const recordPath = await state.path('actions.jsonl'), setAside = `${recordPath}.aside`;
+    await api.actionsWritten(); await rename(recordPath, setAside); await mkdir(recordPath);
+    try { await send(); await api.actionsWritten(); }
+    finally { await rm(recordPath, { recursive: true, force: true }); await rename(setAside, recordPath); }
+    assert.equal(api.outputLines().filter(line => /^Action record not written \(EISDIR\); commands are not affected/.test(line)).length, 1);
+    assert.match(said(/^Send command/)!, /— sent 2 rows/);
     assert.equal(fixture.threads[newDraft.threadId].messages[0].content, 'A new selected comment.');
     assert.equal(fixture.threads[newDraft.threadId].messages[1].content, 'A dependent pending reply.');
     // Conflicting scratch copies must not trigger source-file build-on-save.
@@ -475,7 +557,20 @@ export async function run(): Promise<void> {
     const ownMessage = fixture.threads.c1.messages[0].id;
     await vscode.commands.executeCommand('turnleaf.deleteMessage', { value: 'c1', message: ownMessage });
     const deletion = (await state.read()).pending.find(draft => draft.kind === 'deleteMessage');
-    assert.equal(deletion?.messageId, ownMessage); await state.discard(deletion!.id); await api.refreshLocal();
+    assert.equal(deletion?.messageId, ownMessage);
+    // A Send with a deletion asks first; declining sends nothing.
+    await summary(o => o.comments.length === 1, 'The deletion is listed as going out');
+    api.answerConfirmation(undefined); await send();
+    assert.equal((await finished()).outcome, 'confirmation-declined'); assert.equal(fixture.threads.c1.messages[0].id, ownMessage);
+    await state.discard(deletion!.id); await api.refreshLocal();
+    // Every command filed in the record has a received and a finished line, in pairs.
+    const filed = await records(), open = new Map<string, number>();
+    for (const line of filed) {
+      if (line.event === 'received') open.set(line.command, (open.get(line.command) ?? 0) + 1);
+      if (line.event === 'finished') { assert(open.get(line.command), `finished without received: ${line.command}`); open.set(line.command, open.get(line.command)! - 1); }
+    }
+    assert([...open.values()].every(count => count === 0), `Each received command finished: ${JSON.stringify([...open])}`);
+    for (const command of ['pull', 'applyReviewed', 'checkRemote', 'refreshComments', 'acceptChange', 'undoSend']) assert(filed.some(line => line.event === 'finished' && line.command === command && line.outcome === 'done'), `${command} is filed as done`);
     await vscode.commands.executeCommand('turnleaf.showSyncHistory');
     const history = await state.history(); assert(history.length >= 4); assert(history.every(record => record.outcome === 'success'));
     await vscode.commands.executeCommand('turnleaf.historyDiff', { entry: history.find(record => record.files.length)?.id, path: 'main.tex' });
