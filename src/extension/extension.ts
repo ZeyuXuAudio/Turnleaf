@@ -12,8 +12,8 @@ import { progress, currentOperation } from '../core/operation';
 import { ActionLog, describe, operationLabel, pressTag, Press, ActionResult, SEND_COMMANDS } from '../core/actionLog';
 import { CommandRunner, FinishedRecord } from '../core/commands';
 import { browserSignIn, closeLeftoverSignInBrowser, closeSignInBrowsers, findBrowser, LeftoverSignInWindowError } from '../core/browserSignIn';
-import { rm } from 'node:fs/promises';
-import { join } from 'node:path';
+import { chmod, mkdir, rm, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import type { ProjectView } from './panel';
 
 class InspectionDocuments implements vscode.TextDocumentContentProvider, vscode.Disposable {
@@ -69,12 +69,30 @@ export interface LiveProbeApi {
   projects(): Promise<Project[]>;
   snapshot(): ProbeSnapshot;
 }
+/**
+ * The live roundtrip test's hook (scripts/roundtrip.mjs): only in a development host with
+ * TURNLEAF_LIVE_PROBE=1 and TURNLEAF_ROUNDTRIP=1, never in an installed extension. It lets
+ * the test read the outgoing summary, answer Send's confirmation and check Overleaf itself.
+ */
+export interface RoundtripApi extends LiveProbeApi {
+  view(): ProjectView;
+  /** True once the outgoing summary reflects the current files and drafts. */
+  settled(): boolean;
+  /** The answer the next Send confirmation gets, in place of the modal. */
+  answerConfirmation(answer: string | undefined): void;
+  /** A reader with the stored session, for the test's own checks on Overleaf. */
+  reader(): Promise<OverleafReader>;
+  /** Writes the stored session cookie to `path` with owner-only permissions, for the command-line leg. */
+  saveSessionFile(path: string): Promise<void>;
+  /** Signs in with a cookie; refused except for a server on this computer (the fixture server). */
+  signInLocal(cookie: string): Promise<void>;
+}
 
 // Closes a sign-in window that is still open, so that no browser keeps running
 // on the sign-in profile after the editor (or its extension host) stops.
 export function deactivate(): Promise<void> { return closeSignInBrowsers(); }
 
-export function activate(context: vscode.ExtensionContext): TestApi | LiveProbeApi | undefined {
+export function activate(context: vscode.ExtensionContext): TestApi | LiveProbeApi | RoundtripApi | undefined {
   // A log channel: VS Code puts the time on every line and offers a level filter.
   const output = vscode.window.createOutputChannel('Turnleaf', { log: true });
   const version = String(context.extension.packageJSON.version);
@@ -142,6 +160,7 @@ export function activate(context: vscode.ExtensionContext): TestApi | LiveProbeA
   };
   // Sanitized counts and shapes for scripts/live.mjs; never enabled in an installed extension.
   const probe = context.extensionMode === vscode.ExtensionMode.Development && process.env.TURNLEAF_LIVE_PROBE === '1' ? new ProbeRecorder() : undefined;
+  const roundtrip = !!probe && process.env.TURNLEAF_ROUNDTRIP === '1';
   status.text = 'Overleaf: ready';
   status.command = 'turnleaf.showOverview';
   status.tooltip = 'Open Overleaf project controls and review changes.';
@@ -295,7 +314,7 @@ export function activate(context: vscode.ExtensionContext): TestApi | LiveProbeA
     }));
   };
   const workspace = installWorkspace(context, { scope, reader, text: (path, text) => documents.add(path, text), register, output, status,
-    isBusy: () => runner.isBusy(), operation: () => runner.operation(), presses,
+    isBusy: () => runner.isBusy(), operation: () => runner.operation(), presses, scripted: roundtrip,
     background: action => runner.background(action, error => { if (error instanceof SessionExpiredError) { clients.clear(); workspace.setSessionState('expired'); } }),
   });
   register('turnleaf.signIn', () => signIn());
@@ -348,6 +367,20 @@ export function activate(context: vscode.ExtensionContext): TestApi | LiveProbeA
     })().catch(error => output.appendLine(safeError(error))), 500);
     context.subscriptions.push({ dispose() { clearTimeout(timer); runner.abort(); } });
   }
+  if (probe && roundtrip) return { sessionStored, projects: async () => (await reader(await scope())).listProjects(), snapshot: () => probe.snapshot(),
+    view: workspace.viewForTest, settled: workspace.summarySettledForTest, answerConfirmation: workspace.answerConfirmationForTest,
+    reader: async () => reader(await scope()),
+    async saveSessionFile(path: string) {
+      const cookie = await context.secrets.get(secretKey((await scope()).baseUrl));
+      if (!cookie) throw new SessionExpiredError();
+      await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+      await writeFile(path, cookie + '\n', { mode: 0o600 }); await chmod(path, 0o600);
+    },
+    async signInLocal(cookie: string) {
+      const host = new URL((await scope()).baseUrl).hostname;
+      if (!['127.0.0.1', 'localhost', '[::1]'].includes(host)) throw new SyncError('signInLocal is only for a server on this computer.', 'configuration');
+      await signInWithCookie(cookie);
+    } };
   if (probe) return { sessionStored, projects: async () => (await reader(await scope())).listProjects(), snapshot: () => probe.snapshot() };
   if (context.extensionMode === vscode.ExtensionMode.Test) return {
     signIn, inspect, openFile: async path => (await openFile(path))!, sessionStored, refreshLocal: workspace.refresh, restoreLocal: async (startup?: boolean) => { workspace.clear(); await workspace.restoreCached({ startup }); if (startup) await workspace.checkNow(); }, reviewSnapshot: workspace.snapshot, reviewThread: workspace.threadForTest, reviewCommentingRanges: workspace.commentingRangesForTest, reviewView: workspace.viewForTest, reviewRenders: workspace.rendersForTest, summarySettled: workspace.summarySettledForTest,

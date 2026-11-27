@@ -43,6 +43,8 @@ interface Host {
   background(action: () => Promise<void>): Promise<boolean>;
   /** The press record: each press on a view button, and its outcome when it ends without a command. */
   presses: { pressed(press: Press): void; ended(press: Press, result: ActionResult): void };
+  /** The live roundtrip test drives this window: Send's confirmation takes its queued answers, as in the editor test. */
+  scripted?: boolean;
 }
 // Arguments of a command link in trusted Markdown. encodeURIComponent leaves ( and ) as they are,
 // and an unmatched ) in a file name or ID would end the link early.
@@ -807,9 +809,9 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
   function sendOutcome(result: { mismatches: string[]; warnings: string[] }, done: string) {
     return result.mismatches.length ? 'Verification failed. Get latest before sending again.' : result.warnings.length ? 'Upload verified with concurrency warnings. Review the result and project history.' : done;
   }
-  // The confirmation before an irreversible Send. The editor test answers it in place of the modal.
+  // The confirmation before an irreversible Send. The editor test and the live roundtrip test answer it in place of the modal.
   const testAnswers: (string | undefined)[] = [];
-  const confirm = (message: string, detail: string, button: string) => context.extensionMode === vscode.ExtensionMode.Test && testAnswers.length
+  const confirm = (message: string, detail: string, button: string) => (context.extensionMode === vscode.ExtensionMode.Test || host.scripted) && testAnswers.length
     ? Promise.resolve(testAnswers.shift()) : vscode.window.showWarningMessage(message, { modal: true, detail }, button);
   // One click: a fresh read of Overleaf and of the saved files, and a send only when
   // the fresh plan equals the summary that was shown. Otherwise nothing is written

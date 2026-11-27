@@ -33,7 +33,9 @@ export const legacyReply = [[escaped('Jörg cite.'), ''], 9, [], {
 
 // trackChanges: whether the signed-in owner has Track Changes on (default on).
 // maxUploadSize: the project page's ol-ExposedSettings limit (none when unset).
-export async function startFixtureServer(options: { writable?: boolean; trackChanges?: boolean; maxUploadSize?: number } = {}) {
+// projectName: the project's name in the project list and joinProject (default "Fixture Review").
+export async function startFixtureServer(options: { writable?: boolean; trackChanges?: boolean; maxUploadSize?: number; projectName?: string } = {}) {
+  const projectName = options.projectName ?? 'Fixture Review';
   const requests: { method: string; path: string; packet?: string }[] = [];
   const sockets = new Map<string, string[]>();
   let socketId = 0;
@@ -148,7 +150,14 @@ export async function startFixtureServer(options: { writable?: boolean; trackCha
         res.end('{}'); return;
       }
       const threadDeletion = /\/doc\/([^/]+)\/thread\/([^/]+)$/.exec(url.pathname);
-      if (threadDeletion && req.method === 'DELETE') { delete threads[threadDeletion[2]]; res.end('{}'); return; }
+      if (threadDeletion && req.method === 'DELETE') {
+        // Like Overleaf, deleting a thread also removes its comment range from the document.
+        const [, docId, threadId] = threadDeletion, doc = replies[docId];
+        delete threads[threadId];
+        if (doc?.[4] === 'history-ot') doc[0].comments = (doc[0].comments ?? []).filter((c: any) => c.id !== threadId);
+        else if (doc?.[3]?.comments) doc[3].comments = doc[3].comments.filter((c: any) => c.op?.t !== threadId);
+        res.end('{}'); return;
+      }
       const resolution = /\/thread\/([^/]+)\/(resolve|reopen)$/.exec(url.pathname);
       if (resolution && threads[resolution[1]]) { threads[resolution[1]].resolved = resolution[2] === 'resolve'; res.end('{}'); return; }
       // Like Overleaf, accepting sharejs suggestions keeps the document version.
@@ -157,7 +166,7 @@ export async function startFixtureServer(options: { writable?: boolean; trackCha
       res.writeHead(404).end(); return;
     }
     if (url.pathname === '/project') {
-      const projects = JSON.stringify({ projects: [{ id: 'test-project', name: 'Fixture Review', lastUpdated: '2026-10-19' }] }).replaceAll('"', '&quot;');
+      const projects = JSON.stringify({ projects: [{ id: 'test-project', name: projectName, lastUpdated: '2026-10-19' }] }).replaceAll('"', '&quot;');
       const exposed = options.maxUploadSize ? `<meta name="ol-ExposedSettings" data-type="json" content="${JSON.stringify({ maxUploadSize: options.maxUploadSize }).replaceAll('"', '&quot;')}">` : '';
       res.end(`<meta name="ol-csrfToken" content="fixture-csrf"><meta name="ol-user_id" content="${fixtureOwner}"><meta name="ol-prefetchedProjectsBlob" content="${projects}">${exposed}`); return;
     }
@@ -179,7 +188,7 @@ export async function startFixtureServer(options: { writable?: boolean; trackCha
     }
     if (url.pathname === '/socket.io/1/') {
       const sid = `fixture-${++socketId}`;
-      const event = '5:::' + JSON.stringify({ name: 'joinProjectResponse', args: [{ publicId: 'fixture-public', permissionsLevel: 'owner', protocolVersion: 2, project: { name: 'Fixture Review', owner: { _id: fixtureOwner }, trackChangesState: { [fixtureOwner]: options.trackChanges ?? true, __guests__: false }, rootDoc_id: 'modern', rootFolder: [structuredClone(tree)] } }] });
+      const event = '5:::' + JSON.stringify({ name: 'joinProjectResponse', args: [{ publicId: 'fixture-public', permissionsLevel: 'owner', protocolVersion: 2, project: { name: projectName, owner: { _id: fixtureOwner }, trackChangesState: { [fixtureOwner]: options.trackChanges ?? true, __guests__: false }, rootDoc_id: 'modern', rootFolder: [structuredClone(tree)] } }] });
       if (rejectedJoins > 0) { rejectedJoins--; sockets.set(sid, ['5:::' + JSON.stringify({ name: 'connectionRejected', args: [{ message: 'rate-limit hit when joining project', code: 'TooManyRequests' }] }), '0::']); }
       else sockets.set(sid, [event]);
       res.end(`${sid}:60:60:xhr-polling`); return;
