@@ -127,6 +127,6 @@ Open an issue in the project's GitHub repository with:
 - The Turnleaf version (shown at the bottom of the **Sync** tab), the editor and its version, and your operating system.
 - What you did, what you expected and what happened.
 - The relevant lines from the **Turnleaf** output channel.
-- If a button press did nothing or did something unexpected: `actions.jsonl` from `.turnleaf/projects/<project-key>/`. Each line names one press or command, its outcome and its time, with the Turnleaf version, the editor window and the process.
+- If a button press did nothing or did something unexpected: the lines of `.turnleaf/projects/<project-key>/actions.jsonl` for that press. Each line names one press or command, its outcome and its time, with the Turnleaf version, the editor window and the process; the lines of one press share its `seq` number. Copy those lines and the `activated` line above them, not the whole file.
 
-**Never** include your session cookie, the other contents of `.turnleaf/`, or private document text. The output channel and `actions.jsonl` do not contain the cookie, file contents or comment text, but they can contain file names and messages; look through them before pasting. For security problems, see [SECURITY.md](../../SECURITY.md).
+**Never** include your session cookie, any other file from `.turnleaf/`, or private document text. The output channel and `actions.jsonl` do not contain the cookie, file contents or comment text, but they can contain file names and messages; look through them before pasting. For security problems, see [SECURITY.md](../../SECURITY.md).

@@ -32,8 +32,8 @@ export interface ActionResult {
   nowBlocked?: boolean;
   /** sent: how the read-back after writing came out. */
   verification?: 'verified' | 'mismatch' | 'warnings';
-  /** failed or cancelled: Overleaf or local writes had started. */
-  writesStarted?: boolean;
+  /** failed or cancelled: the send step (applying incoming changes, then uploading) had started; its lines in the output say how far it got. */
+  sendStarted?: boolean;
   /** failed and refusals: the message shown, never a raw response. */
   error?: string;
   /** summary-refreshing and too-soon: what made the summary change, with its time. */
@@ -46,8 +46,12 @@ export interface ActionResult {
 export class Refusal extends SyncError {
   constructor(readonly outcome: Outcome, message: string, code: string) { super(message, code); this.name = 'Refusal'; }
 }
-/** Errors thrown after a Send started writing, so the record can say so. */
-export const writesStarted = new WeakSet<object>();
+/** Errors thrown after a Send reached its send step, so the record can say so. */
+export const sendStarted = new WeakSet<object>();
+
+/** One sequence for the window's presses and commands, so a `seq` names one of them. */
+let lastSeq = 0;
+export const nextSeq = () => ++lastSeq;
 
 /** What made the summary refresh: a short label for the panel, a detail with its time for the record. */
 export interface Cause { label: string; detail?: string; at: number }
@@ -108,8 +112,8 @@ export function describe(result: ActionResult, durationMs?: number): string {
     case 'summary-changed': return r.nowBlocked ? 'not sent: the fresh read found a stop, now shown in the summary'
       : `not sent: summary changed (${r.rows ?? '?'} ${r.rows === 1 ? 'row' : 'rows'}; ${r.overleaf ? 'Overleaf changed' : 'Overleaf unchanged'})`;
     case 'confirmation-declined': return 'not sent: confirmation declined';
-    case 'cancelled': return `cancelled${r.writesStarted ? ' after writes started' : ''}${took}`;
-    case 'failed': return `failed${took}: ${r.error ?? 'unknown error'}${r.writesStarted ? ' (writes had started)' : ''}`;
+    case 'cancelled': return `cancelled${r.sendStarted ? ' after the send step started' : ''}${took}`;
+    case 'failed': return `failed${took}: ${r.error ?? 'unknown error'}${r.sendStarted ? ' (the send step had started)' : ''}`;
     case 'extra-click': return 'ignored: extra click of a double or triple click';
     case 'lost-in-redraw': return 'not run: the panel redrew during the click';
     case 'no-click': return 'not run: no click followed';
@@ -121,7 +125,7 @@ export function describe(result: ActionResult, durationMs?: number): string {
 /** Where a project's record goes: its workspace folder and project key. */
 export interface ActionTarget { root: string; key: string }
 export type ActionEntry = { event: 'press' | 'press-ended' | 'received' | 'finished'; seq?: number; command?: string; surface?: string; disabled?: boolean; detail?: number; durationMs?: number; waitMs?: number } & Partial<ActionResult>;
-const fields = ['event', 'seq', 'command', 'surface', 'disabled', 'detail', 'outcome', 'operation', 'overleaf', 'rows', 'nowBlocked', 'verification', 'writesStarted', 'error', 'cause', 'changedAgoMs', 'durationMs', 'waitMs'] as const;
+const fields = ['event', 'seq', 'command', 'surface', 'disabled', 'detail', 'outcome', 'operation', 'overleaf', 'rows', 'nowBlocked', 'verification', 'sendStarted', 'error', 'cause', 'changedAgoMs', 'durationMs', 'waitMs'] as const;
 /** Only the known fields, strings cut to 300 characters. */
 function clean(entry: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
@@ -163,8 +167,9 @@ export class ActionLog {
     const activated = () => this.line(time, { event: 'activated', ...this.meta.app && { app: this.meta.app }, ...this.meta.editor && { editor: this.meta.editor } });
     let lines = (this.started.has(path) ? '' : activated()) + this.line(time, clean(entry));
     const size = await stat(path).then(info => info.size, (error: NodeJS.ErrnoException) => { if (error.code === 'ENOENT') return 0; throw error; });
+    // Another window may have rotated the same file meanwhile: then it is simply started anew.
     if (size && size + Buffer.byteLength(lines) > this.limit) {
-      await rename(path, path.replace(/\.jsonl$/, '.1.jsonl'));
+      await rename(path, path.replace(/\.jsonl$/, '.1.jsonl')).catch((error: NodeJS.ErrnoException) => { if (error.code !== 'ENOENT') throw error; });
       // Each file starts with the window that writes it.
       if (this.started.has(path)) lines = activated() + lines;
     }
@@ -175,16 +180,20 @@ export class ActionLog {
     const code = error instanceof SyncError ? error.code : (error as NodeJS.ErrnoException)?.code ?? 'unknown';
     if (this.reported.has(code)) return;
     this.reported.add(code);
-    this.report(`Action record not written (${code}); commands are not affected. Later failures with this code are not reported.`);
+    try { this.report(`Action record not written (${code}); commands are not affected. Later failures with this code are not reported.`); } catch { /* recording never stops a command */ }
   }
 }
 
 /** The last argument of a command forwarded from a view: which press (if any) and where. */
 export interface PressTag { turnleafPress: true; seq?: number; surface: string }
+const surfaces = new Set(['panel', 'sidebar', 'history']);
 export function pressTag(value: unknown): PressTag | undefined {
   const tag = value as PressTag | undefined;
-  return tag && typeof tag === 'object' && tag.turnleafPress === true && typeof tag.surface === 'string' ? tag : undefined;
+  if (!tag || typeof tag !== 'object' || tag.turnleafPress !== true) return;
+  return { turnleafPress: true, surface: surfaces.has(tag.surface) ? tag.surface : 'unknown', ...Number.isSafeInteger(tag.seq) && tag.seq! > 0 && { seq: tag.seq } };
 }
+/** A live event name from Overleaf as it may be logged: a plain identifier, otherwise "unknown event". */
+export const eventName = (name: unknown) => typeof name === 'string' && /^[A-Za-z][\w.:-]{0,59}$/.test(name) ? name : 'unknown event';
 
 /** A press as the project view reports it on pointerdown. */
 export interface PressMessage { seq: number; command: string; disabled: boolean; detail: number }
@@ -197,21 +206,22 @@ export interface Press { seq: number; command: string; surface: string; disabled
  * or no click after the release.
  */
 export class PressTracker {
-  private next = 0;
   private readonly open = new Map<string, { press: Press; timer?: ReturnType<typeof setTimeout> }>();
-  private readonly recent = new Map<string, number>();
+  private readonly recent = new Map<string, { seq: number; command: string }>();
   constructor(private readonly hooks: { pressed(press: Press): void; ended(press: Press, result: ActionResult): void; disabledResult(command: string): ActionResult }, private readonly noClickMs = NO_CLICK_MS) {}
   private key(surface: string, local: number) { return `${surface}:${local}`; }
   press(surface: string, message: PressMessage): Press {
-    const press: Press = { seq: ++this.next, command: message.command, surface, disabled: message.disabled, detail: message.detail, at: Date.now() };
+    const press: Press = { seq: nextSeq(), command: message.command, surface, disabled: message.disabled, detail: message.detail, at: Date.now() };
     const key = this.key(surface, message.seq);
-    this.recent.set(key, press.seq);
+    // A reloaded view may reuse a number: the earlier press with it has ended.
+    this.end(key, { outcome: 'no-click' });
+    this.recent.delete(key); this.recent.set(key, { seq: press.seq, command: press.command });
     if (this.recent.size > 200) this.recent.delete(this.recent.keys().next().value!);
     this.hooks.pressed(press);
     if (message.detail > 1) this.hooks.ended(press, { outcome: 'extra-click' });
     else if (message.disabled) this.hooks.ended(press, this.hooks.disabledResult(message.command));
     // Released or not, a press that reaches no command within 10 s has ended.
-    else this.open.set(key, { press, timer: setTimeout(() => this.end(key, { outcome: 'no-click' }), 10 * this.noClickMs) });
+    else { const entry: { press: Press; timer?: ReturnType<typeof setTimeout> } = { press }; entry.timer = setTimeout(() => this.end(key, { outcome: 'no-click' }, entry), 10 * this.noClickMs); this.open.set(key, entry); }
     return press;
   }
   /** pointerup: `lost` when the pressed button was redrawn, so no click follows. */
@@ -220,20 +230,23 @@ export class PressTracker {
     if (!entry) return;
     if (lost) { this.end(key, { outcome: 'lost-in-redraw' }); return; }
     clearTimeout(entry.timer);
-    entry.timer = setTimeout(() => this.end(key, { outcome: 'no-click' }), this.noClickMs);
+    entry.timer = setTimeout(() => this.end(key, { outcome: 'no-click' }, entry), this.noClickMs);
   }
   /** A click the view ignored as part of a double or triple click. */
   extra(surface: string, local: number) { this.end(this.key(surface, local), { outcome: 'extra-click' }); }
-  /** The command of a press: its window-wide sequence number, if the press is known. */
-  command(surface: string, local: number | undefined): number | undefined {
+  /** The command of a press: its window-wide sequence number, if the press is known and was for this command. */
+  command(surface: string, local: number | undefined, command: string): number | undefined {
     if (local === undefined) return;
-    const key = this.key(surface, local), entry = this.open.get(key);
-    if (entry) { clearTimeout(entry.timer); this.open.delete(key); }
-    return this.recent.get(key);
-  }
-  private end(key: string, result: ActionResult) {
+    const key = this.key(surface, local), known = this.recent.get(key);
+    if (known?.command !== command) return;
     const entry = this.open.get(key);
-    if (!entry) return;
+    if (entry) { clearTimeout(entry.timer); this.open.delete(key); }
+    return known.seq;
+  }
+  /** `only`: end the entry only if it is still this one (a timer of an earlier press does not end a later one). */
+  private end(key: string, result: ActionResult, only?: { press: Press }) {
+    const entry = this.open.get(key);
+    if (!entry || only && entry !== only) return;
     clearTimeout(entry.timer); this.open.delete(key);
     this.hooks.ended(entry.press, result);
   }

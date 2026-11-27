@@ -1,12 +1,13 @@
 import { withOperation } from './operation';
 import { SyncError, safeError } from './errors';
-import { ActionResult, ActionTarget, OUTCOMES, Outcome, Refusal, operationLabel, writesStarted } from './actionLog';
+import { ActionResult, ActionTarget, OUTCOMES, Outcome, Refusal, nextSeq, operationLabel, sendStarted } from './actionLog';
 
 /**
- * A command as received: `seq` links it to the press that started it, `surface` to where.
+ * A command as received: `seq` pairs its two lines; for a command started by a press it is the
+ * press's number (`pressed`), otherwise a new one. `surface`: where it was pressed.
  * `target`: where its record went when received, so its finished line goes there too.
  */
-export interface CommandRecord { command: string; seq?: number; surface?: string; received: number; target?: ActionTarget }
+export interface CommandRecord { command: string; seq: number; pressed: boolean; surface?: string; received: number; target?: ActionTarget }
 /** `waitMs`: time before the command ran (stopping a background check, the window's startup). */
 export interface FinishedRecord extends CommandRecord { result: ActionResult; durationMs: number; waitMs: number; error?: unknown }
 export interface RunnerHooks {
@@ -30,10 +31,10 @@ export function asResult(value: unknown): ActionResult | undefined {
   return value && typeof value === 'object' && outcomes.has((value as { outcome?: unknown }).outcome as string) ? value as ActionResult : undefined;
 }
 export function errorResult(error: unknown): ActionResult {
-  const started = typeof error === 'object' && error !== null && writesStarted.has(error);
+  const started = typeof error === 'object' && error !== null && sendStarted.has(error);
   if (error instanceof Refusal) return { outcome: error.outcome, error: error.message };
-  if (error instanceof SyncError && error.code === 'cancelled') return { outcome: 'cancelled', ...started && { writesStarted: true } };
-  return { outcome: 'failed' as Outcome, error: safeError(error), ...started && { writesStarted: true } };
+  if (error instanceof SyncError && error.code === 'cancelled') return { outcome: 'cancelled', ...started && { sendStarted: true } };
+  return { outcome: 'failed' as Outcome, error: safeError(error), ...started && { sendStarted: true } };
 }
 
 /**
@@ -53,16 +54,21 @@ export class CommandRunner {
   operation(): string | undefined { return this.backgroundAbort ? 'background check' : this.current ? operationLabel(this.current) : undefined; }
   abort() { this.backgroundAbort?.abort(); }
   private safe(hook: () => void) { try { hook(); } catch { /* recording never stops a command */ } }
-  async run(command: string, action: () => Promise<unknown>, options: { mode?: 'window'; seq?: number; surface?: string } = {}): Promise<void> {
-    const record: CommandRecord = { command, seq: options.seq, surface: options.surface, received: Date.now() };
+  private record(command: string, options: { seq?: number; surface?: string }): CommandRecord {
+    return { command, seq: options.seq ?? nextSeq(), pressed: options.seq !== undefined, surface: options.surface, received: Date.now() };
+  }
+  /** Resolves to what the command came to; never rejects. */
+  async run(command: string, action: () => Promise<unknown>, options: { mode?: 'window'; seq?: number; surface?: string } = {}): Promise<ActionResult> {
+    const record = this.record(command, options);
     this.safe(() => this.hooks.received(record));
     let result: ActionResult = { outcome: 'failed' }, waitMs = 0, failure: unknown;
     try {
       if (this.backgroundAbort) { this.backgroundAbort.abort(); await this.backgroundDone?.catch(() => {}); }
+      waitMs = Date.now() - record.received;
       if (this.busy) {
         result = { outcome: 'busy', operation: this.operation() ?? 'another operation' };
         this.safe(() => this.hooks.busy(command, result.operation!));
-        return;
+        return result;
       }
       this.busy = true; this.current = command; this.safe(() => this.hooks.changed());
       try {
@@ -74,14 +80,15 @@ export class CommandRunner {
         failure = error; result = errorResult(error);
         this.safe(() => this.hooks.failed(command, error, false));
       } finally { this.busy = false; this.current = undefined; this.safe(() => this.hooks.changed()); }
+      return result;
     } finally {
       const finished: FinishedRecord = { ...record, result, durationMs: Date.now() - record.received, waitMs, ...failure !== undefined && { error: failure } };
       this.safe(() => this.hooks.finished(finished));
     }
   }
   /** Moving around the review: no progress, no lock, no wait for a running operation. */
-  async quietly(command: string, action: () => Promise<unknown>, options: { seq?: number; surface?: string } = {}): Promise<void> {
-    const record: CommandRecord = { command, seq: options.seq, surface: options.surface, received: Date.now() };
+  async quietly(command: string, action: () => Promise<unknown>, options: { seq?: number; surface?: string } = {}): Promise<ActionResult> {
+    const record = this.record(command, options);
     this.safe(() => this.hooks.received(record));
     let result: ActionResult = { outcome: 'failed' }, waitMs = 0, failure: unknown;
     try {
@@ -95,6 +102,7 @@ export class CommandRunner {
       const finished: FinishedRecord = { ...record, result, durationMs: Date.now() - record.received, waitMs, ...failure !== undefined && { error: failure } };
       this.safe(() => this.hooks.finished(finished));
     }
+    return result;
   }
   /** A background check: runs only while nothing else does, and any command stops it. False: not run. */
   background(action: () => Promise<void>, onError?: (error: unknown) => void): Promise<boolean> {

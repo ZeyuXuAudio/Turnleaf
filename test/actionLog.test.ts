@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ActionLog, ActionResult, Press, PressTracker, Refusal, SETTLE_MS, describe, operationLabel, pressNotice, pressTag, sendGate, writesStarted } from '../src/core/actionLog';
+import { ActionLog, ActionResult, Press, PressTracker, Refusal, SETTLE_MS, describe, eventName, operationLabel, pressNotice, pressTag, sendGate, sendStarted } from '../src/core/actionLog';
 import { CommandRunner, FinishedRecord, CommandRecord, asResult, errorResult } from '../src/core/commands';
 import { SyncError } from '../src/core/errors';
 
@@ -42,12 +42,15 @@ test('output lines say what each command or press came to', () => {
   assert.equal(describe({ outcome: 'sent', rows: 2, verification: 'verified' }, 2400), 'sent 2 rows in 2.4 s; verified');
   assert.equal(describe({ outcome: 'summary-changed', rows: 1, overleaf: true }), 'not sent: summary changed (1 row; Overleaf changed)');
   assert.equal(describe({ outcome: 'summary-changed', rows: 3, overleaf: false }), 'not sent: summary changed (3 rows; Overleaf unchanged)');
-  assert.equal(describe({ outcome: 'failed', error: 'Overleaf request failed. Please try again.', writesStarted: true }), 'failed: Overleaf request failed. Please try again. (writes had started)');
+  assert.equal(describe({ outcome: 'failed', error: 'Overleaf request failed. Please try again.', sendStarted: true }), 'failed: Overleaf request failed. Please try again. (the send step had started)');
   assert.equal(describe({ outcome: 'busy', operation: 'background check' }), 'not run: background check running');
   assert.equal(describe({ outcome: 'extra-click' }), 'ignored: extra click of a double or triple click');
   assert.equal(operationLabel('turnleaf.pull'), 'Get latest'); assert.equal(operationLabel('linkProject'), 'Link project');
   assert.deepEqual(pressTag({ turnleafPress: true, surface: 'panel', seq: 3 }), { turnleafPress: true, surface: 'panel', seq: 3 });
   assert.equal(pressTag({ path: 'main.tex' }), undefined); assert.equal(pressTag('c1'), undefined);
+  assert.deepEqual(pressTag({ turnleafPress: true, surface: 'x'.repeat(5000), seq: -1 }), { turnleafPress: true, surface: 'unknown' }, 'Only known surfaces and positive whole numbers reach the record');
+  assert.deepEqual(pressTag({ turnleafPress: true, surface: 'history', seq: 1.5 }), { turnleafPress: true, surface: 'history' });
+  assert.equal(eventName('otUpdateApplied'), 'otUpdateApplied'); assert.equal(eventName('new comment: "secret text"'), 'unknown event'); assert.equal(eventName(42), 'unknown event');
 });
 
 test('the action record: version, window session and process on every line, one activated line per window, a rotated copy past the cap', async () => {
@@ -94,7 +97,7 @@ test('presses: matched to their command, or ended as disabled, extra click, lost
   const tracker = new PressTracker({ pressed: press => pressed.push(press), ended: (press, result) => ended.push([press, result]), disabledResult: () => ({ outcome: 'summary-refreshing', cause: 'main.tex saved 10:00:00' }) }, 30);
   const a = tracker.press('panel', { seq: 1, command: 'send', disabled: false, detail: 1 });
   tracker.release('panel', 1, false);
-  assert.equal(tracker.command('panel', 1), a.seq, 'The click reaches its command');
+  assert.equal(tracker.command('panel', 1, 'send'), a.seq, 'The click reaches its command');
   const b = tracker.press('sidebar', { seq: 1, command: 'send', disabled: true, detail: 1 });
   assert.notEqual(b.seq, a.seq, 'Each view counts its own presses; the record numbers them per window');
   tracker.press('panel', { seq: 2, command: 'send', disabled: false, detail: 2 });
@@ -105,8 +108,16 @@ test('presses: matched to their command, or ended as disabled, extra click, lost
   assert.deepEqual(ended.map(([press, result]) => [press.surface, press.command, result.outcome]), [
     ['sidebar', 'send', 'summary-refreshing'], ['panel', 'send', 'extra-click'], ['panel', 'send', 'lost-in-redraw'], ['panel', 'send', 'extra-click'], ['panel', 'pull', 'no-click']]);
   assert.equal(pressed.length, 6);
-  assert.equal(tracker.command('panel', 4), pressed[4].seq, 'A late command still carries its press');
-  assert.equal(tracker.command('panel', undefined), undefined);
+  assert.equal(tracker.command('panel', 4, 'pull'), pressed[4].seq, 'A late command still carries its press');
+  assert.equal(tracker.command('panel', 4, 'send'), undefined, 'A command carries a press only when it is the pressed one');
+  assert.equal(tracker.command('panel', undefined, 'send'), undefined);
+  // A reloaded view reusing a number: the earlier press ends, and its timer never ends the new one.
+  ended.length = 0;
+  tracker.press('panel', { seq: 9, command: 'send', disabled: false, detail: 1 }); tracker.release('panel', 9, false);
+  const again = tracker.press('panel', { seq: 9, command: 'pull', disabled: false, detail: 1 });
+  await sleep(45);
+  assert.deepEqual(ended.map(([press, result]) => [press.command, result.outcome]), [['send', 'no-click']], 'Only the earlier press has ended');
+  assert.equal(tracker.command('panel', 9, 'pull'), again.seq);
   tracker.dispose();
 });
 
@@ -125,9 +136,11 @@ test('every command gets a received and a finished record with its press and out
   const { commands, received, finished } = runner();
   await commands.run('turnleaf.pull', async () => undefined, { seq: 7, surface: 'sidebar' });
   await commands.quietly('turnleaf.openThread', async () => 'c1', { surface: 'panel' });
-  await commands.run('turnleaf.send', async () => ({ outcome: 'sent', rows: 1, verification: 'verified' }));
-  assert.deepEqual(received.map(r => [r.command, r.seq, r.surface]), [['turnleaf.pull', 7, 'sidebar'], ['turnleaf.openThread', undefined, 'panel'], ['turnleaf.send', undefined, undefined]]);
-  assert.deepEqual(finished.map(r => [r.command, r.seq, r.result.outcome]), [['turnleaf.pull', 7, 'done'], ['turnleaf.openThread', undefined, 'done'], ['turnleaf.send', undefined, 'sent']]);
+  assert.deepEqual(await commands.run('turnleaf.send', async () => ({ outcome: 'sent', rows: 1, verification: 'verified' })), { outcome: 'sent', rows: 1, verification: 'verified' }, 'A command resolves to its result');
+  assert.deepEqual(received.map(r => [r.command, r.pressed, r.surface]), [['turnleaf.pull', true, 'sidebar'], ['turnleaf.openThread', false, 'panel'], ['turnleaf.send', false, undefined]]);
+  assert.equal(received[0].seq, 7, 'A pressed command carries its press number');
+  assert(Number.isSafeInteger(received[1].seq) && Number.isSafeInteger(received[2].seq) && received[1].seq !== received[2].seq, 'Every other command gets a number of its own');
+  assert.deepEqual(finished.map(r => [r.command, r.seq, r.result.outcome]), received.map(r => [r.command, r.seq, ['done', 'done', 'sent'][received.indexOf(r)]]), 'Both lines of a command carry the same number');
   assert(finished.every(r => r.durationMs >= 0 && r.waitMs >= 0));
   // Where the received line went is where the finished line goes.
   const filed = new CommandRunner({ ready: async () => {}, progress: (_m, task) => task(new AbortController().signal, () => {}), received: record => { record.target = { root: '/r', key }; },
@@ -153,6 +166,13 @@ test('a command while another runs is busy and names it; the waiting time is rec
   assert.equal(commands.isBusy(), false, 'A background check is not a busy operation'); assert.equal(commands.operation(), 'background check');
   await commands.run('turnleaf.send', async () => ({ outcome: 'sent' }));
   assert.equal(stopped, true); assert.equal(finished.at(-1)!.result.outcome, 'sent'); assert(finished.at(-1)!.waitMs >= 200, 'The wait for the background check is recorded');
+  // Two commands waiting for one background check: the second is busy, and its wait is recorded too.
+  let letGo!: () => void;
+  void commands.background(async () => { await sleep(250); }).catch(() => {});
+  const first = commands.run('turnleaf.pull', () => new Promise<void>(resolve => { letGo = resolve; }));
+  const second = await commands.run('turnleaf.send', async () => ({ outcome: 'sent' }));
+  assert.deepEqual(second, { outcome: 'busy', operation: 'Get latest' }); assert(finished.at(-1)!.waitMs >= 200);
+  letGo(); await first;
   // Startup work still running: the command waits for it.
   let started!: () => void;
   const slow = runner({ ready: new Promise<void>(resolve => { started = resolve; }) });
@@ -165,12 +185,12 @@ test('refusals, cancellations and failures map to their outcomes; a failing reco
   const { commands, finished, failed } = runner();
   await commands.run('turnleaf.send', async () => { throw new Refusal('unsaved-files', 'Save the selected files first: unsaved edits are not in the summary.', 'stale'); });
   await commands.run('turnleaf.send', async () => { throw new SyncError('Cancelled.', 'cancelled'); });
-  await commands.run('turnleaf.send', async () => { const error = new SyncError('Overleaf rejected the upload.', 'push'); writesStarted.add(error); throw error; });
+  await commands.run('turnleaf.send', async () => { const error = new SyncError('Overleaf rejected the upload.', 'push'); sendStarted.add(error); throw error; });
   await commands.quietly('turnleaf.openThread', async () => { throw new Error('raw third-party message with details'); });
   assert.deepEqual(finished.map(r => r.result), [
     { outcome: 'unsaved-files', error: 'Save the selected files first: unsaved edits are not in the summary.' },
     { outcome: 'cancelled' },
-    { outcome: 'failed', error: 'Overleaf rejected the upload.', writesStarted: true },
+    { outcome: 'failed', error: 'Overleaf rejected the upload.', sendStarted: true },
     { outcome: 'failed', error: 'Overleaf request failed. Please try again.' }]);
   assert.equal(failed.length, 4, 'Pop-ups and sign-in handling still see every error');
   assert.equal(asResult({ outcome: 'no-such-outcome' }), undefined); assert.equal(asResult('sent'), undefined);

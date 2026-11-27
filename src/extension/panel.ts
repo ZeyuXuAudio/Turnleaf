@@ -49,6 +49,8 @@ export interface OutgoingView {
   updating?: string;
   /** Why the last press on Send (or Send undo) did not send. */
   pressNotice?: string;
+  /** The summary's revision, carried by its Send button: a press on an older one does not send. */
+  revision?: number;
   files: SummaryFile[]; comments: CommentChange[]; pictures?: SummaryPicture[];
   /** Comment change ID → where Show in editor goes. */
   places?: Record<string, Place>;
@@ -76,6 +78,8 @@ export interface UndoView {
   updating?: string;
   /** Why the last press on Send (or Send undo) did not send. */
   pressNotice?: string;
+  /** The summary's revision, carried by its Send button: a press on an older one does not send. */
+  revision?: number;
   files: SummaryFile[]; comments: CommentChange[]; changed?: string[]; pictures?: SummaryPicture[];
   stays: { label: string; path?: string; reason: string }[];
   blocked?: SummaryBlock; unsaved?: string[]; notice?: string; selectedPath?: string;
@@ -143,10 +147,11 @@ export function projectContent(view: ProjectView, surface: Surface = 'sidebar'):
   const incomingCount = (p?.files.length ?? 0) + (p?.pictures?.length ?? 0) + (p?.comments?.length ?? 0);
   const sendingOff = 'Sending is off for this project';
   // While Send waits, its label says why.
+  const revisionAttr = (x: { revision?: number }) => x.revision === undefined ? '' : `data-revision="${x.revision}"`;
   const waitLabel = (x: { sendWait?: 'refreshing' | 'sending' }, label: string) => x.sendWait === 'sending' ? 'Sending…' : x.sendWait === 'refreshing' ? 'Refreshing…' : label;
   let mainActions: string;
   if (u) mainActions = (u.unsaved?.length ? action('saveAll', 'Save all', { primary: true, icon: 'file' })
-    : view.writes ? action('sendUndo', waitLabel(u, 'Send undo'), { primary: true, disabled: !!u.blocked || !!u.busy || !!u.sendWait || !(u.files.length + u.comments.length + sending(u)) })
+    : view.writes ? action('sendUndo', waitLabel(u, 'Send undo'), { primary: true, attrs: revisionAttr(u), disabled: !!u.blocked || !!u.busy || !!u.sendWait || !(u.files.length + u.comments.length + sending(u)) })
     : action('enableWrites', 'Enable sending', { primary: true, icon: 'settings', title: sendingOff })) + action('cancelUndo', 'Cancel', { icon: 'close' });
   else if (ready) mainActions = action('applyReviewed', incomingCount ? `Apply (${incomingCount})` : 'Use this baseline', { primary: true, disabled: conflicted, attrs, title: incomingCount ? `Apply ${plural(incomingCount, 'update')}` : undefined });
   else {
@@ -154,7 +159,7 @@ export function projectContent(view: ProjectView, surface: Surface = 'sidebar'):
     const send = !o || o.blocked ? ''
       : o.unsaved?.length ? action('saveAll', 'Save all', { primary: true, icon: 'file', title: 'Save the selected files so the summary includes their edits' })
       : !outgoingCount ? ''
-      : view.writes ? action('send', waitLabel(o, o.incoming ? 'Apply &amp; send' : 'Send'), { primary: !p?.stale, disabled: !!o.busy || !!o.sendWait, title: o.sendWait === 'refreshing' ? 'Send waits until the summary has settled, so it sends what you see' : o.incoming ? 'Apply the Overleaf changes to your files, then send what is listed' : 'Send what is listed' })
+      : view.writes ? action('send', waitLabel(o, o.incoming ? 'Apply &amp; send' : 'Send'), { primary: !p?.stale, attrs: revisionAttr(o), disabled: !!o.busy || !!o.sendWait, title: o.sendWait === 'refreshing' ? 'Send waits until the summary has settled, so it sends what you see' : o.incoming ? 'Apply the Overleaf changes to your files, then send what is listed' : 'Send what is listed' })
       : action('enableWrites', 'Enable sending', { primary: true, icon: 'settings', title: sendingOff });
     const recover = way === 'recover' ? action('recoverLocalApply', 'Recover local apply', { primary: true, icon: 'history' }) : '';
     mainActions = action('pull', 'Get latest', { primary: !!p?.stale || way === 'getLatest' || !send && !recover && incomingWaiting, disabled: !configured }) + recover + send;
@@ -406,16 +411,17 @@ restoreTab();
 function reply(id,press){const box=document.querySelector('textarea[data-reply="'+CSS.escape(id)+'"]'),text=box?.value.trim();if(!text){box?.focus();return;}if(text.length>20000){box.setCustomValidity('Keep replies under 20,000 characters.');box.reportValidity();return;}api.postMessage({command:'reply',value:id,text,press});box.value='';}
 // The press record: a press on a button that reaches the extension is reported on pointerdown, before any
 // filtering, so a press on a disabled button, an extra click of a double click and a click lost in a redraw
-// are recorded too. detail counts presses on the same button within 500 ms. A render that arrives while a
-// button is held waits until it is released (at most 1 s), so the click lands on the button that was pressed.
-let pressSeq=0,pressed,released,lastPress,heldHtml,holdTimer;
-const pressKey=b=>[b.dataset.command||'',b.dataset.id||'',b.dataset.path||'',b.dataset.value||''].join('|');
+// are recorded too. detail counts presses on the same button, in the same enabled state, within 500 ms. A render
+// that arrives while a button is held waits until it is released (at most 1 s), so the click lands on the button
+// that was pressed. Numbers start at random, so a reloaded view does not reuse the numbers of the one before.
+let pressSeq=Math.floor(Math.random()*1e9),pressed,released,lastPress,heldHtml,holdTimer;
+const pressKey=b=>[b.dataset.command||'',b.dataset.id||'',b.dataset.path||'',b.dataset.value||'',b.dataset.message||'',b.dataset.preview||'',b.disabled?'disabled':''].join('|');
 document.addEventListener('pointerdown',e=>{if(e.button!==0)return;const b=e.target.closest?.('button'),command=b&&(b.dataset.command||(b.dataset.id?'openThread':''));if(!command)return;const now=Date.now(),key=pressKey(b),count=lastPress&&lastPress.key===key&&now-lastPress.at<500?lastPress.count+1:1;lastPress={key,at:now,count};pressed={b,seq:++pressSeq,count,at:now};api.postMessage({type:'press',seq:pressed.seq,command,disabled:b.disabled,detail:count});clearTimeout(holdTimer);holdTimer=setTimeout(flush,1000);},true);
 function release(){if(!pressed)return;released=pressed;pressed=undefined;api.postMessage({type:'release',seq:released.seq,lost:!released.b.isConnected});setTimeout(flush,0);}
 document.addEventListener('pointerup',release,true);document.addEventListener('pointercancel',release,true);
-function flush(){clearTimeout(holdTimer);if(pressed&&Date.now()-pressed.at<1000)return;const html=heldHtml;heldHtml=undefined;if(html!==undefined)render(html);}
+function flush(){clearTimeout(holdTimer);const held=pressed&&Date.now()-pressed.at;if(held<1000){holdTimer=setTimeout(flush,1000-held);return;}const html=heldHtml;heldHtml=undefined;if(html!==undefined)render(html);}
 document.addEventListener('toggle',e=>{if(e.target.matches('details[data-section]')){remembered[e.target.dataset.section]=e.target.open;api.setState(remembered);}},true);
-document.addEventListener('click',e=>{const replies=e.target.closest('.card-replies>summary')?.parentElement;if(replies)toggleText(replies.dataset.section.slice(8),!replies.open);const b=e.target.closest('button');if(b&&b.closest('summary'))e.preventDefault();const p=released&&b&&released.b===b?released:undefined;released=undefined;if(p&&(e.detail>1||p.count>1)){api.postMessage({type:'click-extra',seq:p.seq});return;}if(!b||b.disabled||e.detail>1)return;const press=p?.seq;if(b.dataset.textToggle)toggleText(b.dataset.textToggle,b.getAttribute('aria-expanded')!=='true');else if(b.dataset.tab)selectTab(b.dataset.tab);else if(b.dataset.command==='reply')reply(b.dataset.value,press);else if(b.dataset.command)api.postMessage({command:b.dataset.command,path:b.dataset.path,preview:b.dataset.preview,value:b.dataset.value,message:b.dataset.message,press});else if(b.dataset.id)api.postMessage({id:b.dataset.id,press});});
+document.addEventListener('click',e=>{const replies=e.target.closest('.card-replies>summary')?.parentElement;if(replies)toggleText(replies.dataset.section.slice(8),!replies.open);const b=e.target.closest('button');if(b&&b.closest('summary'))e.preventDefault();const p=released&&b&&released.b===b?released:undefined;released=undefined;if(p&&(e.detail>1||p.count>1)){api.postMessage({type:'click-extra',seq:p.seq});return;}if(!b||b.disabled||e.detail>1)return;const press=p?.seq;if(b.dataset.textToggle)toggleText(b.dataset.textToggle,b.getAttribute('aria-expanded')!=='true');else if(b.dataset.tab)selectTab(b.dataset.tab);else if(b.dataset.command==='reply')reply(b.dataset.value,press);else if(b.dataset.command)api.postMessage({command:b.dataset.command,path:b.dataset.path,preview:b.dataset.preview,value:b.dataset.value,message:b.dataset.message,revision:b.dataset.revision,press});else if(b.dataset.id)api.postMessage({id:b.dataset.id,press});});
 document.addEventListener('keydown',e=>{const t=e.target;if(t.matches?.('[data-tab]')&&(e.key==='ArrowLeft'||e.key==='ArrowRight')){const all=[...document.querySelectorAll('[data-tab]')];e.preventDefault();selectTab(all[(all.indexOf(t)+(e.key==='ArrowRight'?1:all.length-1))%all.length].dataset.tab,true);return;}if(t.matches?.('textarea[data-reply]')&&e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();reply(t.dataset.reply);}});
 document.addEventListener('input',e=>{if(e.target.matches('textarea[data-reply]'))e.target.setCustomValidity('');});
 document.addEventListener('change',e=>{if(e.target.matches('[data-interval]'))api.postMessage({command:'setCheckInterval',value:e.target.value==='live'?'live':Number(e.target.value)});});

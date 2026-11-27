@@ -184,9 +184,13 @@ test('Send while the summary settles reads Refreshing… with the cause; a press
   assert.match(notice.html, /<p class="summary-line attention press-notice" role="status">[\s\S]*?<span>Not sent: the summary was refreshing\. Press Send again when it shows Send\.<\/span>/);
   assert(!('disabled' in command(notice.nodes, 'send')!.attribs), 'Send can be pressed again'); assert.equal(status(notice.nodes), 'warning');
   assert.equal(status(page({}).nodes), 'unsent'); assert.doesNotMatch(projectContent(view({ outgoing: out() })), /press-notice|Updating:/);
+  // Send carries the summary it was drawn with, so a click on an older one does not send.
+  assert.equal(command(page({ revision: 1764254257123 }).nodes, 'send')!.attribs['data-revision'], '1764254257123');
+  assert.equal(command(page({}).nodes, 'send')!.attribs['data-revision'], undefined);
   const undo = { record: 'h1', time: new Date(2026, 10, 13, 9, 5).toISOString(), files: [file], comments: [], stays: [] };
   const undoing = elements(projectContent(view({ outgoing: out({ files: [] }), undo: { ...undo, sendWait: 'refreshing', updating: 'Overleaf changed', pressNotice: 'Not sent again: Send undo was already running.' } })));
   const sendUndo = command(undoing, 'sendUndo')!;
+  assert.equal(command(elements(projectContent(view({ outgoing: out({ files: [] }), undo: { ...undo, revision: 42 } }))), 'sendUndo')!.attribs['data-revision'], '42');
   assert.equal(text(sendUndo).trim(), 'Refreshing…'); assert('disabled' in sendUndo.attribs);
   assert.match(projectContent(view({ outgoing: out({ files: [] }), undo: { ...undo, pressNotice: 'Not sent again: Send undo was already running.' } })), /press-notice[\s\S]*?Not sent again: Send undo was already running\./);
 });

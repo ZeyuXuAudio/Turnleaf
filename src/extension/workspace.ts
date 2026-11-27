@@ -16,7 +16,7 @@ import { ReviewRow, anchorLabel, reviewRows, trackedInspection, renderReviewLog,
 import { Mapping } from '../core/ranges';
 import { Diff, composeEdits } from '../core/diff';
 import { SessionExpiredError, SyncError, safeError } from '../core/errors';
-import { ActionResult, ActionTarget, Cause, Press, PressTracker, Refusal, SEND_COMMANDS, SETTLE_MS, causeText, pressNotice, sendGate, writesStarted } from '../core/actionLog';
+import { ActionResult, ActionTarget, Cause, Press, PressTracker, Refusal, SEND_COMMANDS, SETTLE_MS, causeText, eventName, pressNotice, sendGate, sendStarted } from '../core/actionLog';
 import { annotatePdf } from '../core/pdf';
 import { ReviewComputer } from './reviewComputer';
 import { projectPanel, projectContent, ProjectView, OutgoingView, UndoView, Surface, SuggestionRow, ThreadDetail, Place, ReviewFilter, reviewFilterDefault, matchesThreadFilter, matchesSuggestionFilter } from './panel';
@@ -121,7 +121,8 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
   // What the next summary refresh is for, and what the running one is for: shown as "Updating: …".
   let pendingCause: Cause | undefined, pendingMarked = false, refreshCause: Cause | undefined;
   // Why the last press on Send or Send undo did not send; until the next press or summary change.
-  let pressNote: string | undefined, settleTimer: NodeJS.Timeout | undefined;
+  // The notice after a press that did not send belongs to the summary it was pressed on (`undo`).
+  let pressNote: { text: string; undo: boolean } | undefined, settleTimer: NodeJS.Timeout | undefined, settleAt = 0;
   // The latest live event that re-reads Overleaf: the cause of the summary refresh it brings.
   let liveCause: Cause | undefined;
   // The Send in flight, so events that made a review out of date also stop it.
@@ -155,8 +156,8 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
       const opened = await (await host.reader(scope)).openSession(scope.projectId, scope.trackedFiles, { live: true });
       // Signed out, disabled or disposed while connecting: do not keep it.
       if (!liveAllowed()) { await opened.close(); return undefined; }
-      const offEvent = opened.socket.onEvent(name => {
-        const kind = classifyLiveEvent(name);
+      const offEvent = opened.socket.onEvent(received => {
+        const kind = classifyLiveEvent(received), name = eventName(received);
         // Every event: a summary refresh names the one that started it.
         host.output.appendLine(`Live event: ${name} (${kind === 'ignore' ? 'ignored' : kind === 'reconnect' ? 'reconnects' : 're-reads changed files and comments'})`);
         if (kind !== 'ignore') { liveCause = { label: 'Overleaf changed', detail: `live event ${name}`, at: Date.now() }; scheduleLiveUpdate(kind === 'reconnect'); }
@@ -740,8 +741,8 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
     let logged = false, ended = 'unchanged';
     const begin = () => { if (!logged) { logged = true; host.output.appendLine(`Summary refresh started (${causeText(cause)})`); } };
     const stale = () => { const gone = run !== standingRun || service !== s; if (gone) ended = 'superseded by a newer refresh'; return gone; };
-    if (standingBusy) begin();
     try {
+      if (standingBusy) begin();
       const saved = await readSaved(s.root, s.paths, true), follow = await s.state.followSelections(saved);
       if (stale()) return;
       unplacedDrafts = new Set(follow.unplaced);
@@ -749,14 +750,15 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
       const data = await s.state.read(), overleaf = data.observed ?? data.acknowledged, key = contentKey(data) + await pictureKey(s, overleaf);
       if (stale()) return;
       if (standingInputs?.key === key && sameSaved(saved, standingInputs.saved)) return;
-      begin();
+      // The inputs changed: Send waits for the new summary, whatever started this refresh.
+      begin(); if (!standingBusy) { standingBusy = true; renderPanel(); }
       const before = standing, workflow = new ReviewWorkflow(s);
       const result = overleaf ? await workflow.planSend(data, overleaf, saved) : { blocked: { way: 'getLatest' as const, message: 'Get latest to establish the local sync baseline.', code: 'incoming' } };
       if (stale()) return;
       const same = !!before && (before.plan && result.plan ? !planDifferences(before.plan, result.plan).length : !before.plan && !result.plan && before.blocked?.message === result.blocked?.message);
       standing = { plan: result.plan, blocked: result.blocked, marks: result.plan && irreversible(result.plan), changedAt: same ? before!.changedAt : Date.now(), cause: same ? before!.cause : cause, ...same && { changed: before!.changed, notice: before!.notice } };
       standingInputs = { key, saved };
-      if (!same) { ended = `summary changed: ${rowCount(result.plan)} ${rowCount(result.plan) === 1 ? 'row' : 'rows'}${result.blocked ? ', Send blocked' : ''}`; pressNote = undefined; }
+      if (!same) { ended = `summary changed: ${rowCount(result.plan)} ${rowCount(result.plan) === 1 ? 'row' : 'rows'}${result.blocked ? ', Send blocked' : ''}`; if (!pressNote?.undo) pressNote = undefined; }
       else ended = 'summary unchanged';
       // A message about an earlier state gives way to the new summary; the report of an undo stays once.
       if (before && !same) {
@@ -766,8 +768,9 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
       if (undoing) await computeUndo(s, data, overleaf, saved, cause);
     } catch (error) { ended = `failed: ${safeError(error)}`; throw error; }
     finally {
-      if (run === standingRun) { standingBusy = false; refreshCause = undefined; paintStatus(); }
-      if (logged) host.output.appendLine(`Summary refresh ended: ${ended}`);
+      // A newer refresh already scheduled keeps Send waiting until it has run.
+      if (run === standingRun && !standingTimer) { standingBusy = false; refreshCause = undefined; paintStatus(); }
+      if (logged) host.output.appendLine(`Summary refresh ended (${causeText(cause)}): ${ended}`);
     }
   }
   async function computeUndo(s: SyncService, data: ProjectData, overleaf: Inspection | undefined, saved: SavedTexts, cause: Cause = { label: 'undo summary opened', at: Date.now() }) {
@@ -777,20 +780,29 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
     if (undoing !== u || service !== s) return;
     const same = u.plan && result.plan ? !undoDifferences(u.plan, result.plan).length : !u.plan && !result.plan && u.blocked?.message === result.blocked?.message;
     undoing = { record: u.record, time: record?.time ?? u.time, plan: result.plan, blocked: result.blocked, changedAt: same ? u.changedAt : Date.now(), cause: same ? u.cause : cause, ...same && { changed: u.changed, notice: u.notice } };
-    if (!same) pressNote = undefined;
+    if (!same) {
+      if (pressNote?.undo) pressNote = undefined;
+      const rows = rowCount(result.plan?.plan);
+      summaryChanged(`undo summary, ${rows} ${rows === 1 ? 'row' : 'rows'}${result.blocked ? ', Send undo blocked' : ''} (${causeText(cause)})`);
+    }
   }
   const undoDifferences = (shown: UndoPlan, next: UndoPlan) => [...planDifferences(shown.plan, next.plan), ...fingerprint(shown.stays) === fingerprint(next.stays) ? [] : ['stays']];
   // What a press on Send or Send undo needs before any request is made. A result: it does
   // not send, and the summary says why (pressNotice). A refusal shows its message as before.
-  function clickAllowed(s: SyncService, shown: Shown | undefined): ActionResult | undefined {
+  // `revision`: the summary the pressed button was drawn with (absent from the command palette).
+  // A press on an older summary than the current one does not send, however long ago it changed.
+  function clickAllowed(s: SyncService, shown: Shown | undefined, revision: unknown): ActionResult | undefined {
     if (prepared && !prepared.complete) throw new Refusal('preview-open', 'Apply or close the Get latest preview first.', 'stale');
-    const gate = sendGate({ shown, refreshing: standingBusy, refreshCause: refreshCause ?? pendingCause, sending, now: Date.now() });
+    const now = Date.now(), gate = sendGate({ shown, refreshing: standingBusy, refreshCause: refreshCause ?? pendingCause, sending, now });
     if (gate) return gate;
+    if (revision !== undefined && String(revision) !== String(shown!.changedAt)) return { outcome: 'too-soon-after-summary-change', changedAgoMs: now - shown!.changedAt, ...shown!.cause && { cause: causeText(shown!.cause) } };
     if (shown!.blocked) throw new Refusal('blocked', shown!.blocked.message, shown!.blocked.code);
     if (dirtyTracked(s).length) throw new Refusal('unsaved-files', 'Save the selected files first: unsaved edits are not in the summary.', 'stale');
     if (!writes()) throw new Refusal('sending-off', 'Enable sending in Project setup first.', 'read-only');
   }
   const summaryChanged = (what: string) => host.output.appendLine(`Summary changed: ${what}`);
+  // The rows a difference marks (an Overleaf-side change marks its file row); order and mode changes are not rows.
+  const changedRows = (changed: string[]) => new Set(changed.filter(key => /^(file|remote|comment|picture|incoming|incoming-comment):/.test(key)).map(key => key.replace(/^remote:/, 'file:'))).size;
   const verification = (result: { mismatches: string[]; warnings: string[] }) => result.mismatches.length ? 'mismatch' as const : result.warnings.length ? 'warnings' as const : 'verified' as const;
   function sendOutcome(result: { mismatches: string[]; warnings: string[] }, done: string) {
     return result.mismatches.length ? 'Verification failed. Get latest before sending again.' : result.warnings.length ? 'Upload verified with concurrency warnings. Review the result and project history.' : done;
@@ -802,9 +814,9 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
   // One click: a fresh read of Overleaf and of the saved files, and a send only when
   // the fresh plan equals the summary that was shown. Otherwise nothing is written
   // and the summary shows the fresh plan with the differing rows marked.
-  async function send(): Promise<ActionResult> {
+  async function send(arg?: { revision?: unknown }): Promise<ActionResult> {
     const s = await setup(), current = standing;
-    const refused = clickAllowed(s, current); if (refused) return refused;
+    const refused = clickAllowed(s, current, arg?.revision); if (refused) return refused;
     const shown = current!;
     if (!shown.plan || !rowCount(shown.plan)) return { outcome: 'nothing-to-send' };
     if (prepared?.complete) prepared = undefined;
@@ -829,11 +841,12 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
       if (service !== s || active.stale || dirtyTracked(s).length) throw new Refusal('workspace-changed', `Nothing was sent: ${active.stale ?? 'the workspace changed while preparing to send.'}`, 'stale');
       const changed = planDifferences(shown.plan, plan);
       if (changed.length) {
-        const overleaf = !sameContent(shown.plan.inspection, plan.inspection), cause = { label: overleaf ? 'Overleaf changed' : 'fresh read at Send', detail: 'fresh read at Send', at: Date.now() };
+        const overleaf = !sameContent(shown.plan.inspection, plan.inspection) || !samePictures(shown.plan.inspection, plan.inspection), cause = { label: overleaf ? 'Overleaf changed' : 'fresh read at Send', detail: 'fresh read at Send', at: Date.now() };
         standing = { plan, marks: irreversible(plan), changedAt: cause.at, cause, changed, notice: `${overleaf ? 'Overleaf changed since this summary was shown' : 'The summary changed since it was shown'}. Nothing was sent: check the marked rows, then send again.` };
-        summaryChanged(`${changed.length} ${changed.length === 1 ? 'row' : 'rows'} differ at Send; ${overleaf ? 'Overleaf changed' : 'Overleaf unchanged'} (${causeText(cause)})`);
+        const rows = changedRows(changed);
+        summaryChanged(`${rows} ${rows === 1 ? 'row differs' : 'rows differ'} at Send; ${overleaf ? 'Overleaf changed' : 'Overleaf unchanged'} (${causeText(cause)})`);
         await acceptInspection(s, plan.inspection, cause); await showOverview();
-        return { outcome: 'summary-changed', rows: changed.length, overleaf };
+        return { outcome: 'summary-changed', rows, overleaf };
       }
       // Combined send: apply the incoming changes first, exactly like Get latest →
       // Apply, then send against the state that was acknowledged. Rejected
@@ -869,7 +882,7 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
       lastReport = report.join('\n');
       if (result.mismatches.length || result.warnings.length) await showReport();
       return { outcome: 'sent', rows: rowCount(plan), verification: verification(result) };
-    } catch (error) { if (wrote && typeof error === 'object' && error) writesStarted.add(error); throw error; }
+    } catch (error) { if (wrote && typeof error === 'object' && error) sendStarted.add(error); throw error; }
     finally { await afterSend(s, wrote); }
   }
   async function afterSend(s: SyncService, wrote: boolean) {
@@ -886,13 +899,13 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
     if (typeof arg?.value !== 'string' || !/^[\w-]+$/.test(arg.value)) return;
     if (prepared && !prepared.complete) throw new SyncError('Apply or close the Get latest preview first.', 'stale');
     const data = await s.state.read();
-    undoing = { record: arg.value, time: '', changedAt: Date.now() };
+    undoing = { record: arg.value, time: '', changedAt: Date.now() }; if (pressNote?.undo) pressNote = undefined;
     await computeUndo(s, data, data.observed ?? data.acknowledged, await readSaved(s.root, s.paths, true));
     paintStatus(); await showOverview();
   }
-  async function sendUndo(): Promise<ActionResult> {
+  async function sendUndo(arg?: { revision?: unknown }): Promise<ActionResult> {
     const s = await setup(), current = undoing;
-    const refused = clickAllowed(s, current); if (refused) return refused;
+    const refused = clickAllowed(s, current, arg?.revision); if (refused) return refused;
     const shown = current!;
     if (!shown.plan || !rowCount(shown.plan.plan)) return { outcome: 'nothing-to-send' };
     if (prepared?.complete) prepared = undefined;
@@ -916,11 +929,12 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
       if (service !== s || undoing !== shown || active.stale || dirtyTracked(s).length) throw new Refusal('workspace-changed', `Nothing was sent: ${active.stale ?? 'the workspace changed while preparing the undo.'}`, 'stale');
       const changed = undoDifferences(shown.plan, fresh);
       if (changed.length) {
-        const overleaf = !sameContent(shown.plan.plan.inspection, fresh.plan.inspection), cause = { label: 'Overleaf changed', detail: 'fresh read at Send undo', at: Date.now() };
+        const overleaf = !sameContent(shown.plan.plan.inspection, fresh.plan.inspection) || !samePictures(shown.plan.plan.inspection, fresh.plan.inspection), cause = { label: 'Overleaf changed', detail: 'fresh read at Send undo', at: Date.now() };
         undoing = { record: shown.record, time: fresh.time, plan: fresh, changedAt: cause.at, cause, changed, notice: 'Overleaf changed since this undo summary was shown. Nothing was sent: check the marked rows, then send the undo again.' };
-        summaryChanged(`${changed.length} undo ${changed.length === 1 ? 'row differs' : 'rows differ'} at Send undo; ${overleaf ? 'Overleaf changed' : 'Overleaf unchanged'} (${causeText(cause)})`);
+        const rows = changedRows(changed);
+        summaryChanged(`${rows} undo ${rows === 1 ? 'row differs' : 'rows differ'} at Send undo; ${overleaf ? 'Overleaf changed' : 'Overleaf unchanged'} (${causeText(cause)})`);
         await acceptInspection(s, fresh.plan.inspection, cause); await showOverview();
-        return { outcome: 'summary-changed', rows: changed.length, overleaf };
+        return { outcome: 'summary-changed', rows, overleaf };
       }
       wrote = true;
       const result = await s.push(fresh.plan, () => service === s && !active.stale && writes() && !dirtyTracked(s).length, line => host.output.appendLine(line));
@@ -930,7 +944,7 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
       await acceptInspection(s, result.inspection, { label: 'Send undo finished', at: Date.now() });
       if (result.mismatches.length || result.warnings.length) await showReport();
       return { outcome: 'sent', rows: rowCount(fresh.plan), verification: verification(result) };
-    } catch (error) { if (wrote && typeof error === 'object' && error) writesStarted.add(error); throw error; }
+    } catch (error) { if (wrote && typeof error === 'object' && error) sendStarted.add(error); throw error; }
     finally { await afterSend(s, wrote); }
   }
   const showReport = () => vscode.window.showTextDocument(host.text('send-result.md', lastReport ?? ''));
@@ -1022,16 +1036,18 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
   }
   // Send waits while the summary is recomputed and for 650 ms after it changed, so the owner sees what is sent.
   // A render at the end of that wait enables Send again.
-  function sendWait(shown: Shown): Pick<OutgoingView, 'sendWait' | 'updating' | 'pressNotice'> {
-    const left = shown.changedAt + SETTLE_MS - Date.now();
-    if (left > 0 && !settleTimer) settleTimer = setTimeout(() => { settleTimer = undefined; renderPanel(); }, left + 10);
+  // `revision` goes on the button, so a press is checked against the summary it was drawn with.
+  function sendWait(shown: Shown, undo: boolean): Pick<OutgoingView, 'sendWait' | 'updating' | 'pressNotice' | 'revision'> {
+    const until = shown.changedAt + SETTLE_MS, left = until - Date.now();
+    // One timer, for the earliest end of a wait.
+    if (left > 0 && (!settleTimer || until < settleAt)) { clearTimeout(settleTimer); settleAt = until; settleTimer = setTimeout(() => { settleTimer = undefined; renderPanel(); }, left + 10); }
     const refreshing = standingBusy || left > 0, cause = standingBusy ? refreshCause ?? pendingCause : shown.cause;
-    return { ...sending ? { sendWait: 'sending' as const } : refreshing && { sendWait: 'refreshing' as const, updating: cause?.label ?? 'summary check' }, ...pressNote && { pressNotice: pressNote } };
+    return { revision: shown.changedAt, ...sending ? { sendWait: 'sending' as const } : refreshing && { sendWait: 'refreshing' as const, updating: cause?.label ?? 'summary check' }, ...pressNote?.undo === undo && { pressNotice: pressNote.text } };
   }
   function outgoingView(): OutgoingView | undefined {
     const st = standing; if (!st || !inspection || !service) return;
     const plan = st.plan, changed = new Set(st.changed), unsaved = unsavedNames();
-    return { busy: standingBusy || sending, ...sendWait(st), notice: st.notice, selectedPath: selectedDiff, trackChanges: plan?.inspection.trackChanges,
+    return { busy: standingBusy || sending, ...sendWait(st, false), notice: st.notice, selectedPath: selectedDiff, trackChanges: plan?.inspection.trackChanges,
       files: plan?.files.map(f => ({ path: f.doc.path, added: f.added, removed: f.removed, mark: st.marks?.[`file:${f.doc.path}`], changed: changed.has(`file:${f.doc.path}`) || changed.has(`remote:${f.doc.path}`),
         ...f.create && { note: `New on Overleaf${f.create.folders.length ? ` · creates folder ${f.create.folders.join(', ')}` : ''}${plan.inspection.trackChanges ? ' · written as plain text, not as suggestions, as an Overleaf upload' : ''}` } })) ?? [],
       pictures: plan?.pictures?.map(f => ({ path: f.path, summary: outgoingSummary(f), sends: sendsPicture(f), created: f.kind === 'create', note: f.note, changed: changed.has(`picture:${f.path}`) })),
@@ -1046,7 +1062,7 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
     const changed = new Set(u.changed), unsaved = unsavedNames();
     // Rejecting your own suggestions is how a tracked edit is taken back: the file row stands for them.
     const comments = u.plan?.plan.comments.filter(change => !change.suggestion) ?? [];
-    return { record: u.record, time: u.time, busy: standingBusy || sending, ...sendWait(u), notice: u.notice, selectedPath: selectedDiff,
+    return { record: u.record, time: u.time, busy: standingBusy || sending, ...sendWait(u, true), notice: u.notice, selectedPath: selectedDiff,
       files: u.plan?.files.map(f => ({ path: f.path, added: f.added, removed: f.removed, note: f.note, mark: f.mark, changed: changed.has(`file:${f.path}`) || changed.has(`remote:${f.path}`) })) ?? [],
       pictures: u.plan?.plan.pictures?.map(f => ({ path: f.path, summary: outgoingSummary(f), sends: sendsPicture(f), note: f.note, changed: changed.has(`picture:${f.path}`) })),
       comments, changed: keyed(u.changed, 'comment:'), stays: u.plan?.stays.map(row => ({ label: row.label, path: row.path, reason: row.reason })) ?? [],
@@ -1090,10 +1106,13 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
     return { outcome: 'disabled' };
   }
   const sendLabel = (command: string) => command === 'sendUndo' ? 'Send undo' : 'Send';
-  const notePress = (text: string | undefined) => { if (pressNote !== text) { pressNote = text; renderPanel(); } };
+  const notePress = (command: string, text: string | undefined) => {
+    const next = text === undefined ? undefined : { text, undo: command === 'sendUndo' };
+    if (pressNote?.text !== next?.text || pressNote?.undo !== next?.undo) { pressNote = next; renderPanel(); }
+  };
   const presses = new PressTracker({
-    pressed(press) { host.presses.pressed(press); if (SEND_COMMANDS.has(press.command) && press.detail <= 1) notePress(undefined); },
-    ended(press, result) { host.presses.ended(press, result); const text = SEND_COMMANDS.has(press.command) ? pressNotice(result, sendLabel(press.command)) : undefined; if (text) notePress(text); },
+    pressed(press) { host.presses.pressed(press); if (SEND_COMMANDS.has(press.command) && press.detail <= 1) notePress(press.command, undefined); },
+    ended(press, result) { host.presses.ended(press, result); const text = SEND_COMMANDS.has(press.command) ? pressNotice(result, sendLabel(press.command)) : undefined; if (text) notePress(press.command, text); },
     disabledResult,
   });
   const localSeq = (value: unknown) => typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : undefined;
@@ -1104,15 +1123,18 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
     const handle = (message: any) => {
       if (message?.ready === true) { posted.delete(webview); renderPanel(); return; }
       // The press record: pointerdown on a button, its release, and extra clicks of a double click.
+      // These messages only feed the record: a malformed one is dropped, never run as a command.
       const seq = localSeq(message?.seq);
-      if (message?.type === 'press' && seq && typeof message.command === 'string' && /^[A-Za-z]{1,40}$/.test(message.command)) {
-        presses.press(surface, { seq, command: message.command, disabled: message.disabled === true, detail: localSeq(message.detail) ?? 1 }); return;
+      if (message?.type === 'press') {
+        if (seq && typeof message.command === 'string' && /^[A-Za-z]{1,40}$/.test(message.command)) presses.press(surface, { seq, command: message.command, disabled: message.disabled === true, detail: localSeq(message.detail) ?? 1 });
+        return;
       }
-      if (message?.type === 'release' && seq) { presses.release(surface, seq, message.lost === true); return; }
-      if (message?.type === 'click-extra' && seq) { presses.extra(surface, seq); return; }
-      const tag = { turnleafPress: true, surface, ...(() => { const press = presses.command(surface, localSeq(message?.press)); return press === undefined ? {} : { seq: press }; })() };
+      if (message?.type === 'release') { if (seq) presses.release(surface, seq, message.lost === true); return; }
+      if (message?.type === 'click-extra') { if (seq) presses.extra(surface, seq); return; }
+      const pressedCommand = typeof message?.command === 'string' ? message.command : typeof message?.id === 'string' ? 'openThread' : '';
+      const tag = { turnleafPress: true, surface, ...(() => { const press = presses.command(surface, localSeq(message?.press), pressedCommand); return press === undefined ? {} : { seq: press }; })() };
       if (typeof message?.id === 'string' && rows.some(r => r.thread.id === message.id)) void vscode.commands.executeCommand('turnleaf.openThread', message.id, tag);
-      if (['signIn', 'signInWithCookie', 'signOut', 'linkProject', 'openWalkthrough', 'configureFiles', 'enableWrites', 'refreshComments', 'pull', 'push', 'send', 'saveAll', 'openOutgoingDiff', 'undoSend', 'sendUndo', 'cancelUndo', 'sendReviewed', 'applyReviewed', 'applyAndReview', 'openPreviewDiff', 'cancelPreview', 'resolveConflict', 'useResolution', 'useRemoteVersion', 'keepLocalVersion', 'reviewDetails', 'recoverLocalApply', 'checkRemote', 'setCheckInterval', 'setSendCheck', 'toggleComments', 'toggleHighlights', 'toggleOutlineMarkers', 'showReviewPanel', 'openOverleaf', 'showSyncHistory', 'openReviewFiles', 'toggleReviewFiles', 'toggleReviewFilter', 'setCommentMarkers', 'setDeletionDisplay', 'editDraft', 'discardDraft', 'reattachDraft', 'newComment', 'reply', 'resolve', 'reopen', 'openThread', 'openSuggestion', 'acceptChange', 'rejectChange', 'acceptAllChanges', 'rejectAllChanges', 'decideAuthorChanges', 'editMessage', 'deleteMessage'].includes(message?.command)) void vscode.commands.executeCommand(`turnleaf.${message.command}`, { path: message.path, preview: message.preview, value: message.value, ...typeof message.text === 'string' && { text: message.text }, ...typeof message.message === 'string' && { message: message.message } }, tag);
+      if (['signIn', 'signInWithCookie', 'signOut', 'linkProject', 'openWalkthrough', 'configureFiles', 'enableWrites', 'refreshComments', 'pull', 'push', 'send', 'saveAll', 'openOutgoingDiff', 'undoSend', 'sendUndo', 'cancelUndo', 'sendReviewed', 'applyReviewed', 'applyAndReview', 'openPreviewDiff', 'cancelPreview', 'resolveConflict', 'useResolution', 'useRemoteVersion', 'keepLocalVersion', 'reviewDetails', 'recoverLocalApply', 'checkRemote', 'setCheckInterval', 'setSendCheck', 'toggleComments', 'toggleHighlights', 'toggleOutlineMarkers', 'showReviewPanel', 'openOverleaf', 'showSyncHistory', 'openReviewFiles', 'toggleReviewFiles', 'toggleReviewFilter', 'setCommentMarkers', 'setDeletionDisplay', 'editDraft', 'discardDraft', 'reattachDraft', 'newComment', 'reply', 'resolve', 'reopen', 'openThread', 'openSuggestion', 'acceptChange', 'rejectChange', 'acceptAllChanges', 'rejectAllChanges', 'decideAuthorChanges', 'editMessage', 'deleteMessage'].includes(message?.command)) void vscode.commands.executeCommand(`turnleaf.${message.command}`, { path: message.path, preview: message.preview, value: message.value, ...typeof message.text === 'string' && { text: message.text }, ...typeof message.message === 'string' && { message: message.message }, ...typeof message.revision === 'string' && { revision: message.revision } }, tag);
     };
     viewListeners.set(surface, handle);
     context.subscriptions.push(webview.onDidReceiveMessage(handle));
@@ -1147,7 +1169,7 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
   context.subscriptions.push(vscode.window.registerWebviewViewProvider('turnleaf.project', { resolveWebviewView(value) { overview = value; wire(value.webview, 'sidebar'); value.onDidDispose(() => { overview = undefined; }, undefined, context.subscriptions); } }));
   register('showOverview', showOverview, 'quiet'); register('send', send); register('sendReviewed', send); register('applyReviewed', applyReviewed); register('applyAndReview', applyReviewed); register('openPreviewDiff', openPreviewDiff, 'quiet');
   register('openOutgoingDiff', openOutgoingDiff, 'quiet'); register('undoSend', undoSend); register('sendUndo', sendUndo);
-  register('cancelUndo', async () => { undoing = undefined; if (selectedDiff?.startsWith('undo:')) selectedDiff = undefined; paintStatus(); }, 'quiet');
+  register('cancelUndo', async () => { undoing = undefined; if (pressNote?.undo) pressNote = undefined; if (selectedDiff?.startsWith('undo:')) selectedDiff = undefined; paintStatus(); }, 'quiet');
   register('saveAll', async () => { const s = await setup(); for (const doc of dirtyTracked(s)) if (!await doc.save()) throw new SyncError(`Could not save ${doc.fileName}.`, 'stale'); scheduleStanding(true, { label: 'files saved', at: Date.now() }); }, 'quiet');
   register('cancelPreview', async () => { prepared = undefined; resolutionPaths.clear(); note = 'Preview closed. No further file changes applied.'; paintStatus(); }, 'quiet');
   register('resolveConflict', arg => resolveConflict(arg, false)); register('useResolution', arg => resolveConflict(arg, true));
@@ -1653,8 +1675,8 @@ export function installWorkspace(context: vscode.ExtensionContext, host: Host) {
     /** Where this project's press record goes; none before a project is set up. */
     actionTarget: (): ActionTarget | undefined => service ? { root: service.root, key: service.state.key } : undefined,
     /** A press on Send or Send undo clears the last "Not sent" notice; its outcome may set a new one. */
-    commandReceived(command: string) { if (SEND_COMMANDS.has(command)) notePress(undefined); },
-    commandFinished(command: string, result: ActionResult) { if (SEND_COMMANDS.has(command)) { const text = pressNotice(result, sendLabel(command)); if (text) notePress(text); } },
+    commandReceived(command: string) { if (SEND_COMMANDS.has(command)) notePress(command, undefined); },
+    commandFinished(command: string, result: ActionResult) { if (SEND_COMMANDS.has(command)) { const text = pressNotice(result, sendLabel(command)); if (text) notePress(command, text); } },
     viewForTest: view,
     /** When the summary shown (or the undo summary) last changed. */
     summaryChangedAtForTest: () => (undoing ?? standing)?.changedAt,

@@ -11,8 +11,8 @@ All notable user-facing changes to Turnleaf are listed here, newest first. The f
 
 ### Changed
 
-- While the Send summary refreshes, and for 0.65 s after it changes, **Send** and **Send undo** read **Refreshing…** and cannot be pressed. A muted line **Updating: …** says what changed, for example `main.tex saved`. Send only sends the summary you saw: a press is never kept to send after the refresh.
-- A press on **Send** or **Send undo** that did not send now says so in the summary, for example **Not sent: the summary was refreshing. Press Send again when it shows Send.** The notice stays until the next press or the next change of the summary. The extra clicks of a double or triple click get no notice.
+- While the Send summary refreshes, and for 0.65 s after it changes, **Send** and **Send undo** read **Refreshing…** and cannot be pressed. A muted line **Updating: …** says what changed, for example `main.tex saved`. Send only sends the summary you saw: a press is never kept to send after the refresh, and a press on a button drawn with an older summary does not send.
+- A press on **Send** or **Send undo** that did not send now says so in the summary, for example **Not sent: the summary was refreshing. Press Send again when it shows Send.** The notice stays with the summary it was pressed on until the next press or the next change of that summary; **Cancel** on an undo summary removes it. The extra clicks of a double or triple click get no notice.
 - A press on **Send** while another operation runs now names that operation in the summary (**Not sent: Get latest is still running. Press Send again when it has finished.**) instead of showing a pop-up.
 
 ### Fixed

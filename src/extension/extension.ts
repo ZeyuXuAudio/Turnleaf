@@ -117,8 +117,9 @@ export function activate(context: vscode.ExtensionContext): TestApi | LiveProbeA
     },
     finished(record: FinishedRecord) {
       const command = short(record.command);
-      probe?.finished(record.command, new Date(record.received), record.error);
-      write(`${title(command, record.surface, record.seq !== undefined)} — ${describe(record.result, record.durationMs)}${record.waitMs >= 200 ? ` (waited ${record.waitMs} ms first)` : ''}`, record.result);
+      // The probe follows commands that ran; one refused as busy never started.
+      if (record.result.outcome !== 'busy') probe?.finished(record.command, new Date(record.received), record.error);
+      write(`${title(command, record.surface, record.pressed)} — ${describe(record.result, record.durationMs)}${record.waitMs >= 200 ? ` (waited ${record.waitMs} ms first)` : ''}`, record.result);
       void log.write(record.target, { event: 'finished', seq: record.seq, command, surface: record.surface, durationMs: record.durationMs, waitMs: record.waitMs, ...record.result });
       workspace.commandFinished(command, record.result);
     },
