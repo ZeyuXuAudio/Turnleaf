@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, writeFile, rm, mkdir, readdir, symlink, stat, chmod } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { run, exitCodes, failureOf, policyProblems, signInProfile } from '../src/cli/turnleaf';
 import { fixtureCookie, fixtureOwner, startFixtureServer } from './fixtureServer';
 import { createHash } from 'node:crypto';
@@ -360,4 +360,76 @@ test('cli: a queued change of a kind Turnleaf never queues is refused, not sent'
     assert.equal(sent.json().code, 'cache');
     assert(c.fixture.tree.docs.some((doc: { _id: string }) => doc._id === 'modern'));
   } finally { await c.close(); }
+});
+
+test('cli: a session file is never kept in a linked folder, by any path to it, also at sign-in', async () => {
+  const c = await cli(), alias = join(await mkdtemp(join(tmpdir(), 'turnleaf-cli-alias-')), 'paper');
+  try {
+    await c.exec('link', 'test-project', '--files', 'main.tex');
+    await symlink(c.root, alias);
+    // No browser is started: the folder check comes first, and the browser named does not exist.
+    for (const file of [join(c.root, 'session'), join(c.root, '..session'), join(alias, 'sub', 'session')]) {
+      const signIn = await c.raw(['sign-in', '--base-url', c.fixture.baseUrl, '--session-file', file, '--browser', join(c.config, 'no-such-browser')], { TURNLEAF_COOKIE: '' });
+      assert.equal(signIn.code, exitCodes.usage, `${file}: ${signIn.err}`);
+      assert.match(signIn.err, /outside/);
+    }
+    await writeFile(join(c.root, '..session'), fixtureCookie, { mode: 0o600 });
+    assert.equal((await c.raw(['pull', '--folder', alias, '--base-url', c.fixture.baseUrl, '--session-file', join(c.root, '..session')], { TURNLEAF_COOKIE: '' })).code, exitCodes.usage);
+    // A configuration folder inside a linked folder is refused the same way.
+    assert.equal((await c.raw(['projects', '--base-url', c.fixture.baseUrl], { TURNLEAF_COOKIE: '', XDG_CONFIG_HOME: join(c.root, 'config') })).code, exitCodes.usage);
+  } finally { await c.close(); await rm(dirname(alias), { recursive: true, force: true }); }
+});
+
+test('cli: empty values, inherited names and an overridden bad TURNLEAF_BASE_URL are handled before any credential is read', async () => {
+  const c = await cli({ cookie: null });
+  try {
+    for (const argv of [['send', '--yes', '--folder', ''], ['link', '', '--files', 'main.tex', '--folder', c.root], ['constructor', '--all-sources', '--folder', c.root]]) {
+      const result = await c.raw(argv);
+      assert.equal(result.code, exitCodes.usage, `${JSON.stringify(argv)}: ${result.err}`);
+    }
+    // --base-url wins over TURNLEAF_BASE_URL, so only the one used is checked (here: signed out, not a usage error).
+    assert.equal((await c.raw(['projects', '--base-url', c.fixture.baseUrl], { TURNLEAF_BASE_URL: 'not a url' })).code, exitCodes.signedOut);
+    // With --json, no command at all is a JSON usage error too.
+    const none = await c.raw(['--json']);
+    assert.equal(none.code, exitCodes.usage);
+    assert.equal(none.json().code, 'usage');
+  } finally { await c.close(); }
+});
+
+test('cli: --dry-run wins over --yes, status takes the Send checks, and a refused preview is a JSON error too', async () => {
+  const c = await cli({ trackChanges: false });
+  try {
+    await c.exec('link', 'test-project', '--files', 'main.tex');
+    await c.exec('pull');
+    await writeFile(join(c.root, 'main.tex'), (await readFile(join(c.root, 'main.tex'), 'utf8')).replace('Methods.', 'Methods and materials.'));
+    const version = c.fixture.replies.modern[1];
+    const dry = await c.exec('send', '--yes', '--dry-run', '--json');
+    assert.equal(dry.code, exitCodes.blocked);
+    assert.equal(dry.json().dryRun, true);
+    assert.equal(dry.json().code, 'policy');
+    assert.equal(dry.json().exitCode, exitCodes.blocked);
+    assert.match(dry.json().error, /Track Changes is off/);
+    assert.equal(c.fixture.replies.modern[1], version);
+    assert.equal((await c.exec('status', '--allow-untracked-edits')).code, exitCodes.ok);
+    assert.equal((await c.exec('status', '--comments-only', '--allow-untracked-edits')).code, exitCodes.blocked);
+  } finally { await c.close(); }
+});
+
+test('cli: relinking counts what agents saved in the review files but no command imported yet', async () => {
+  const c = await cli();
+  try {
+    await c.exec('link', 'test-project', '--files', 'main.tex');
+    const review = await c.reviewDir();
+    await writeFile(join(review, 'new', 'agent-1.json'), JSON.stringify({ id: 'agent-1', path: 'main.tex', quote: 'Methods.', text: 'Sampling rate?' }));
+    const relinked = await c.exec('link', 'test-project', '--files', 'main.tex,references.bib', '--json');
+    assert.equal(relinked.code, exitCodes.blocked, relinked.out);
+    assert.equal(relinked.json().code, 'selection');
+  } finally { await c.close(); }
+});
+
+test('cli: a session that expired in the middle of Send keeps the warning about what may be on Overleaf', () => {
+  const failure = failureOf(new SyncError('Overleaf session expired\nSome changes may already be remote. Get latest and inspect Sync history; uncertain comment drafts are never resent automatically.', 'session-expired'));
+  assert.equal(failure.exitCode, exitCodes.signedOut);
+  assert.match(failure.message, /Some changes may already be remote/);
+  assert.match(failure.message, /turnleaf sign-in/);
 });

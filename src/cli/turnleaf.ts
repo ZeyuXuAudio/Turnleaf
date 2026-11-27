@@ -1,14 +1,14 @@
 // Headless command line for scripts and AI agents. It drives the same core
 // workflow as the extension: Get latest, the local review files, and Send.
 // Nothing reaches Overleaf without `send --yes`; see docs/guide/command-line.md.
-import { lstat, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { OverleafReader } from '../core/overleaf';
 import { ProjectStore, isDecision } from '../core/projectStore';
-import { ReviewWorkflow, SyncService, pushReport, pullChanges, sameContent, type PushPlan } from '../core/folderWorkflow';
+import { ReviewWorkflow, SyncService, fingerprint, pushReport, pullChanges, sameContent, type PushPlan } from '../core/folderWorkflow';
 import { LocalReviewFiles } from '../core/reviewFiles';
 import { validateTrackedFiles } from '../core/docState';
 import { normalizeBaseUrl } from '../core/http';
@@ -16,7 +16,7 @@ import { SessionExpiredError, SyncError, safeError } from '../core/errors';
 import { browserSignIn, findBrowser } from '../core/browserSignIn';
 import { withOperation } from '../core/operation';
 import { atomicJson, workspacePath } from '../core/storage';
-import { sendsPicture } from '../core/pictures';
+import { sendsPicture, writesPicture } from '../core/pictures';
 
 export interface Io { out(line: string): void; err(line: string): void; env: NodeJS.ProcessEnv; cwd: string; }
 /** Exit codes: 0 done, 1 failed, 2 usage, 3 needs a decision (conflict, policy refusal, blocked send), 4 signed out. */
@@ -54,7 +54,7 @@ const commands: Record<string, { options: string[]; positional: number }> = {
   projects: { options: [], positional: 0 },
   link: { options: ['files', 'all-sources'], positional: 1 },
   pull: { options: ['take-overleaf', 'dry-run', 'pictures'], positional: 0 },
-  status: { options: ['pictures'], positional: 0 },
+  status: { options: ['comments-only', 'allow-untracked-edits', 'allow-deletes', 'pictures'], positional: 0 },
   send: { options: ['yes', 'dry-run', 'comments-only', 'allow-untracked-edits', 'allow-deletes', 'pictures'], positional: 0 },
 };
 function parse(argv: string[]): { command?: string; positional: string[]; options: Options } {
@@ -67,20 +67,24 @@ function parse(argv: string[]): { command?: string; positional: string[]; option
     if (!valued.has(name)) throw new UsageError(`Unknown option --${name}.`);
     const value = inline ?? argv[++i];
     if (value === undefined || value.startsWith('--')) throw new UsageError(`--${name} needs a value.`);
+    if (!value.trim()) throw new UsageError(`--${name} needs a value; it was empty.`);
     options[name] = value;
   }
   return { command: positional.shift(), positional, options };
 }
 /** Refuses what the command does not take, before any file or credential is read. */
 function check(command: string, positional: string[], options: Options, io: Io): void {
-  const spec = commands[command];
+  const spec = Object.hasOwn(commands, command) ? commands[command] : undefined;
   if (!spec) throw new UsageError(`Unknown command: ${command}`);
   const wrong = Object.keys(options).filter(name => !common.includes(name) && !spec.options.includes(name));
   if (wrong.length) throw new UsageError(`${command} does not take ${wrong.map(name => `--${name}`).join(', ')}.`);
+  if (positional.some(value => !value.trim())) throw new UsageError(`${command} got an empty argument.`);
   if (positional.length !== spec.positional) throw new UsageError(spec.positional ? `${command} takes ${spec.positional} argument${spec.positional > 1 ? 's' : ''}.` : `${command} takes no arguments: ${positional.join(' ')}`);
-  for (const value of [options['base-url'], io.env.TURNLEAF_BASE_URL]) if (typeof value === 'string') asUsage(() => normalizeBaseUrl(value));
+  // The server that is used: --base-url wins over TURNLEAF_BASE_URL.
+  const server = options['base-url'] ?? io.env.TURNLEAF_BASE_URL;
+  if (typeof server === 'string') asUsage(() => normalizeBaseUrl(server));
+  // --dry-run wins over --yes: it never writes.
   if (command === 'send' && !options.yes && !options['dry-run']) throw new UsageError('send writes to Overleaf: add --yes, or use --dry-run to see what it would write.');
-  if (command === 'send' && options.yes && options['dry-run']) throw new UsageError('Choose --yes or --dry-run, not both.');
 }
 /** Invalid caller input reported by the core becomes a usage error. */
 function asUsage<T>(action: () => T): T {
@@ -96,7 +100,11 @@ const decisionCodes = new Set(['incoming', 'recovery', 'stale', 'review-files', 
 export function failureOf(error: unknown): { exitCode: number; code: string; message: string; details?: unknown } {
   if (error instanceof UsageError) return { exitCode: exitCodes.usage, code: 'usage', message: error.message };
   if (error instanceof Blocked) return { exitCode: exitCodes.blocked, code: error.code, message: error.message, ...error.details !== undefined && { details: error.details } };
-  if (error instanceof SyncError && error.code === 'session-expired') return { exitCode: exitCodes.signedOut, code: error.code, message: 'Not signed in, or the Overleaf session expired. Run turnleaf sign-in, or set TURNLEAF_COOKIE.' };
+  if (error instanceof SyncError && error.code === 'session-expired') {
+    // A Send that expired midway says what may already be on Overleaf: keep it.
+    const wrapped = error.message !== new SessionExpiredError().message ? `${safeError(error)}\n` : '';
+    return { exitCode: exitCodes.signedOut, code: error.code, message: `${wrapped}Not signed in, or the Overleaf session expired. Run turnleaf sign-in, or set TURNLEAF_COOKIE.` };
+  }
   if (error instanceof SyncError) return { exitCode: decisionCodes.has(error.code) ? exitCodes.blocked : exitCodes.failed, code: error.code, message: safeError(error) };
   return { exitCode: exitCodes.failed, code: 'failed', message: safeError(error) };
 }
@@ -136,11 +144,33 @@ export function signInProfile(file: string, baseUrl: string): string {
 function linkedServer(link: Link, options: Options, io: Io): string {
   const explicit = options['base-url'] ?? io.env.TURNLEAF_BASE_URL, expected = baseUrlOf(options, io);
   const unscoped = !!io.env.TURNLEAF_COOKIE || explicitSessionFile(options, io) !== undefined;
-  if (link.baseUrl !== expected && (explicit !== undefined || unscoped))
+  // A cookie belongs to an origin: a server installed under a path is the same server.
+  if (new URL(link.baseUrl).origin !== new URL(expected).origin && (explicit !== undefined || unscoped))
     throw new UsageError(`This folder is linked to ${link.baseUrl}, but the session is for ${expected}. Pass --base-url ${link.baseUrl} if you trust that server, or link the folder again.`);
   return link.baseUrl;
 }
-const inside = (folder: string, file: string) => { const rel = relative(folder, file); return !rel || !rel.startsWith('..') && !isAbsolute(rel); };
+const inside = (folder: string, file: string) => { const rel = relative(folder, file); return !rel || rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel); };
+/** The path with its existing part resolved through symbolic links, so an alias of a folder is seen as that folder. */
+async function canonical(path: string): Promise<string> {
+  let head = resolve(path), tail = '';
+  for (;;) {
+    try { return join(await realpath(head), tail); }
+    catch (error: any) { if (error.code !== 'ENOENT' || dirname(head) === head) throw error; tail = join(basename(head), tail); head = dirname(head); }
+  }
+}
+/**
+ * Refuses a session file (and the sign-in profile next to it) inside the working
+ * folder or inside any folder linked to a project: it is a password, and a paper
+ * folder is shared, synchronized and archived.
+ */
+async function refuseInProject(file: string, folder?: string): Promise<void> {
+  const real = await canonical(file);
+  if (folder && inside(await canonical(folder), real)) throw new UsageError(`Keep the session file outside the working folder: it is a password (${file}).`);
+  for (let dir = dirname(real); ; dir = dirname(dir)) {
+    if (await lstat(join(dir, '.turnleaf')).then(() => true, () => false)) throw new UsageError(`Keep the session file outside folders linked to Overleaf: ${dir} has a .turnleaf folder, and ${file} is in it. It is a password.`);
+    if (dirname(dir) === dir) return;
+  }
+}
 /** Refuses a session file that is a symbolic link, not a plain file, or readable by others. */
 async function checkSessionFile(path: string, existing: 'read' | 'write'): Promise<boolean> {
   let stat;
@@ -154,13 +184,19 @@ async function readSession(path: string): Promise<string | undefined> {
   if (!await checkSessionFile(path, 'read')) return undefined;
   return (await readFile(path, 'utf8')).trim() || undefined;
 }
-/** Replaces the session file in one step with a file that is private from its creation. */
-async function saveSession(path: string, cookie: string): Promise<void> {
+/**
+ * Replaces the session file in one step with a file that is private from its creation.
+ * `replacing`: the cookie the file must still hold; when it was deleted or now holds
+ * another session (signed out, or another account saved meanwhile), it is left as it is.
+ */
+async function saveSession(path: string, cookie: string, replacing?: string): Promise<boolean> {
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
   await checkSessionFile(path, 'write');
+  if (replacing !== undefined && (await readFile(path, 'utf8').catch(() => '')).trim() !== replacing) return false;
   const temp = `${path}.${randomUUID()}.tmp`;
   try { await writeFile(temp, cookie + '\n', { mode: 0o600, flag: 'wx' }); await rename(temp, path); }
   catch (error) { await rm(temp, { force: true }); throw error; }
+  return true;
 }
 
 export async function run(argv: string[], io: Io): Promise<number> {
@@ -177,7 +213,7 @@ export async function run(argv: string[], io: Io): Promise<number> {
   const { command, positional, options } = parsed;
   // Help asked for (--help or help) goes to stdout and succeeds; no command at all is a usage error.
   if (options.help || command === 'help') { io.out(usage); return exitCodes.ok; }
-  if (!command) { io.err(usage); return exitCodes.usage; }
+  if (!command) { if (json) return fail(new UsageError('No command given.')); io.err(usage); return exitCodes.usage; }
   try { check(command, positional, options, io); } catch (error) { return fail(error); }
   const folder = resolve(io.cwd, String(options.folder ?? '.'));
   const print = (text: string, data: unknown) => io.out(options.json ? JSON.stringify(data, null, 2) : text);
@@ -188,11 +224,14 @@ export async function run(argv: string[], io: Io): Promise<number> {
   /** The reader for a server. A cookie Overleaf renews is saved when the command ends. */
   async function connect(baseUrl: string, inFolder: boolean): Promise<OverleafReader> {
     const file = sessionFile(options, io, baseUrl);
-    if (inFolder && explicitSessionFile(options, io) !== undefined && inside(folder, file)) throw new UsageError('Keep the session file outside the working folder: it is a password.');
+    if (!io.env.TURNLEAF_COOKIE) await refuseInProject(file, inFolder ? folder : undefined);
     const cookie = io.env.TURNLEAF_COOKIE || await readSession(file);
     if (!cookie) throw new SessionExpiredError();
     const reader = new OverleafReader(baseUrl, cookie);
-    if (!io.env.TURNLEAF_COOKIE) renewals.push(async () => { const now = reader.sessionCookie; if (now && now !== cookie) await saveSession(file, now); });
+    if (!io.env.TURNLEAF_COOKIE) renewals.push(async () => {
+      const now = reader.sessionCookie;
+      if (now && now !== cookie && !await saveSession(file, now, cookie)) warn(`${file} changed while this command ran, so the cookie Overleaf renewed was not saved over it.`);
+    });
     return reader;
   }
   async function workflowFor(link: Link, reader: OverleafReader) {
@@ -213,9 +252,10 @@ export async function run(argv: string[], io: Io): Promise<number> {
     code = await withOperation({ signal: controller.signal, report: message => io.err(message) }, async () => {
       switch (command) {
         case 'sign-in': {
-          const baseUrl = baseUrlOf(options, io), file = sessionFile(options, io, baseUrl), executable = findBrowser(typeof options.browser === 'string' ? options.browser : undefined);
+          const baseUrl = baseUrlOf(options, io), file = sessionFile(options, io, baseUrl);
+          await checkSessionFile(file, 'write'); await refuseInProject(file, options.folder !== undefined ? folder : undefined);
+          const executable = findBrowser(typeof options.browser === 'string' ? options.browser : undefined);
           if (!executable) throw new UsageError('No Chrome, Edge, Brave or Chromium browser was found. Pass --browser PATH, or set TURNLEAF_COOKIE.');
-          await checkSessionFile(file, 'write');
           io.err('Sign in to Overleaf in the browser window. It closes once you are signed in.');
           let validated: OverleafReader | undefined;
           const cookie = await browserSignIn({ baseUrl, executable, profileDir: signInProfile(file, baseUrl), headless: !!options.headless,
@@ -263,7 +303,8 @@ export async function run(argv: string[], io: Io): Promise<number> {
             files: plan.files.map(file => ({ path: file.path, added: file.added, removed: file.removed, ...took.has(file.path) && { tookOverleaf: true } })),
             pictures: (plan.pictures ?? []).map(picture => ({ path: picture.path, kind: picture.kind, ...picture.choice && { choice: picture.choice }, ...took.has(picture.path) && { tookOverleaf: true }, ...picture.note && { note: picture.note } })),
             comments: plan.comments.map(comment => ({ id: comment.id, label: comment.label, path: comment.path })) };
-          const counts = `${result.files.length} file change(s), ${result.pictures.length} picture change(s) and ${result.comments.length} comment change(s)`;
+          const written = (plan.pictures ?? []).filter(writesPicture).length, skipped = (plan.pictures ?? []).filter(picture => !writesPicture(picture) && picture.note);
+          const counts = `${result.files.length} file change(s), ${written} picture(s) and ${result.comments.length} comment change(s)${skipped.length ? `; left as they are: ${skipped.map(picture => `${picture.path} (${picture.note})`).join(', ')}` : ''}`;
           if (options['dry-run']) { print(upToDate ? 'Up to date.' : `Would apply ${counts}.`, { dryRun: true, ...result }); return exitCodes.ok; }
           if (!upToDate) await workflow.apply(plan, unchanged(file, raw));
           await refreshReviewFiles(files, state);
@@ -276,14 +317,19 @@ export async function run(argv: string[], io: Io): Promise<number> {
           const { link, raw, file } = await readLink(folder), reader = await connect(linkedServer(link, options, io), true), { state, sync, workflow, files } = await workflowFor(link, reader);
           await refreshReviewFiles(files, state);
           let plan: PushPlan;
+          // prepareSend records what it read on Overleaf: the review files then show it too, also when Send is blocked.
           try { plan = await workflow.prepareSend(); }
-          finally {
-            // prepareSend records what it read on Overleaf: the review files show it too, also when Send is blocked.
-            try { await refreshReviewFiles(files, state); } catch (error) { warn(`could not regenerate the review files: ${safeError(error)}`); }
-          }
+          catch (error) { try { await refreshReviewFiles(files, state); } catch { /* the planning error is the one to report */ } throw error; }
+          await refreshReviewFiles(files, state);
+          // Regenerating imports what agents saved meanwhile: then this plan is no longer what Send would do.
+          if (fingerprint((await state.read()).pending) !== fingerprint(plan.pending)) throw new SyncError('The review files changed while planning. Run the command again.', 'stale');
           const problems = policyProblems(plan, { commentsOnly: !!options['comments-only'], allowUntrackedEdits: !!options['allow-untracked-edits'], allowDeletes: !!options['allow-deletes'] });
           const planned = summary(plan);
-          if (command === 'status' || options['dry-run']) { print([pushReport(plan), ...problems.map(problem => `Refused: ${problem}`)].join('\n'), { dryRun: true, ...planned, problems }); return problems.length ? exitCodes.blocked : exitCodes.ok; }
+          if (command === 'status' || options['dry-run']) {
+            const refusal = problems.length ? { error: problems.join('\n'), code: 'policy', exitCode: exitCodes.blocked } : {};
+            print([pushReport(plan), ...problems.map(problem => `Refused: ${problem}`)].join('\n'), { dryRun: true, ...planned, problems, ...refusal });
+            return problems.length ? exitCodes.blocked : exitCodes.ok;
+          }
           if (problems.length) throw new Blocked(problems.join('\n'), 'policy', { ...planned, problems });
           if (!planned.files.length && !planned.pictures.length && !planned.comments.length) { print(plan.incoming ? 'Nothing to send. Overleaf changed: run turnleaf pull.' : 'Nothing to send.', { sent: false, ...planned }); return exitCodes.ok; }
           const valid = unchanged(file, raw);
@@ -315,10 +361,17 @@ export async function run(argv: string[], io: Io): Promise<number> {
    */
   async function refuseSelectionChange(next: Link): Promise<void> {
     let old: Link;
-    try { old = (await readLink(folder)).link; } catch { return; }
+    try { old = (await readLink(folder)).link; }
+    catch (error) {
+      if (error instanceof UsageError) return; // not linked yet
+      throw new SyncError(`${safeError(error)} Check what it names, then remove it by hand before linking again.`, 'configuration');
+    }
     if (old.baseUrl !== next.baseUrl || old.projectId !== next.projectId || JSON.stringify([...old.paths].sort()) === JSON.stringify([...next.paths].sort())) return;
     for (const [which, paths] of [['current', old.paths], ['new', next.paths]] as const) {
-      const data = await new ProjectStore(folder, next.baseUrl, next.projectId, paths).read();
+      const store = new ProjectStore(folder, next.baseUrl, next.projectId, paths);
+      // What agents saved in the review files but no command imported yet counts as queued too.
+      await new LocalReviewFiles(store).importEdits();
+      const data = await store.read();
       if (data.pending.length || data.localApply || data.partialSend)
         throw new Blocked(`The ${which} file selection (${paths.join(', ')}) of this project has ${data.pending.length ? `${data.pending.length} queued comment change(s)` : 'an interrupted sync'}. Changing the selection would ${which === 'current' ? 'leave them behind' : 'bring back that older queue'}. Send or discard them with the current selection first, or link with the same files.`, 'selection', { selection: paths, pending: data.pending.length });
     }

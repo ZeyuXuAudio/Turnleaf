@@ -24,7 +24,7 @@ This is private source and comment text. Keep `.turnleaf/` out of shared folders
 
 No file in your workspace contains the session cookie.
 
-The [command line](docs/guide/command-line.md) has no secret storage: it keeps the session in a file that only you can read, by default `~/.config/turnleaf/session-<server>` (under `XDG_CONFIG_HOME` when set), with its sign-in browser profile in the same folder, one per server and session file. It refuses a session file that is a symbolic link, that others can read, or that is inside the working folder, and replaces it in one step when Overleaf renews the cookie. Delete the file and the profile to sign out. A cookie given in `TURNLEAF_COOKIE` or a chosen session file goes only to the server named with `--base-url` (or `TURNLEAF_BASE_URL`), or to `https://www.overleaf.com` when none is named, never to a different server written in a folder's `.turnleaf/cli.json`.
+The [command line](docs/guide/command-line.md) has no secret storage: it keeps the session in a file that only you can read, by default `~/.config/turnleaf/session-<server>` (under `XDG_CONFIG_HOME` when set), with its sign-in browser profile in the same folder, one per server and session file. It refuses a session file that is a symbolic link, that others can read, or that is inside the working folder or a folder linked to a project, and replaces it in one step when Overleaf renews the cookie. Delete the file and the profile to sign out. A cookie given in `TURNLEAF_COOKIE` or a chosen session file goes only to the server named with `--base-url` (or `TURNLEAF_BASE_URL`), or to `https://www.overleaf.com` when none is named, never to a different server written in a folder's `.turnleaf/cli.json`.
 
 ## What Turnleaf contacts
 
@@ -39,6 +39,8 @@ Turnleaf starts two kinds of local programs:
 Turnleaf never runs Git.
 
 ## Writes to Overleaf
+
+These points describe the editor. The [command line](docs/guide/command-line.md) has no **Enable sending** switch and no outgoing summary: `send --yes` is its authorization, so leaving the switch off in the editor does not stop a script from sending. It uses the same guard, reads Overleaf again before writing and verifies what it wrote.
 
 - Nothing is written until **Enable sending** is turned on for the project. It is off by default for a new project, and **Choose project** turns it off again when the project changes.
 - Every write passes through one guard that checks this switch, refuses invalid text (wrong encoding, line endings or size), and records the write before it starts.

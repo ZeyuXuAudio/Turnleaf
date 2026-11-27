@@ -67,11 +67,10 @@ Turnleaf is a VS Code and Cursor extension for authors who write LaTeX in a loca
 - It never contacts any server other than the configured Overleaf server, and it collects no telemetry.
 - It never publishes what AI agents or scripts queue in the review files until you press **Send**.
 
-The [command line](#command-line) is an exception to five of these points, because a script decides instead of a person:
+The [command line](#command-line) is an exception to four of these points, because a script decides instead of a person:
 
 - Points 1, 2 and 8: there is no **Enable sending** switch and no outgoing summary to look at. `send --yes` publishes what agents and scripts queued in the review files; without `--yes` nothing is written to Overleaf.
-- Point 3: `pull` writes Overleaf's changes to the folder without a preview, and `send --yes` does the same before it sends when Overleaf changed meanwhile. It stops at a conflict unless `--take-overleaf` is given.
-- Point 5: with `--allow-deletes`, `send` deletes pictures on Overleaf that were deleted in the folder (with `--pictures`), as well as threads and messages.
+- Point 3: `pull` writes Overleaf's changes to the folder without a preview, and `send --yes` writes Overleaf's text and comment changes before it sends when Overleaf changed meanwhile. It stops at a conflict unless `--take-overleaf` is given.
 - Point 6: the session is kept in a private file, by default `~/.config/turnleaf/session-<server>`, not in the editor's secret storage, with the sign-in browser profile next to it. It is never kept in the project folder. Delete these files to sign out.
 
 It also refuses file edits unless Track Changes is on for the account, and sends a cookie only to the server it was given for.
