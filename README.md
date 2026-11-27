@@ -122,10 +122,18 @@ The commands below are in the Command Palette under **Turnleaf:**.
 
 ## Command line
 
-For scripts and AI agents, `turnleaf` runs the same workflow without an editor. It is a separate build and not part of the extension package:
+For scripts and AI agents, `turnleaf` runs the same workflow without an editor. It is a separate build and not part of the extension package or the VSIX, so it is built from a copy of this repository.
+
+Requirements:
+
+- Node.js 22 or newer, with npm.
+- For `sign-in`: Chrome, Edge, Brave or Chromium. Without one, save the session cookie by hand (below).
+- An Overleaf account. A separate account for automated reviews keeps its comments clearly labeled.
 
 ```sh
+git clone https://github.com/ZeyuXuAudio/Turnleaf.git && cd Turnleaf
 npm ci --ignore-scripts && npm run build:cli      # builds dist/cli.js
+node dist/cli.js help                             # lists the commands and options
 node dist/cli.js sign-in                          # or save the session cookie by hand (below)
 node dist/cli.js link <project-id> --folder paper --all-sources
 node dist/cli.js pull --folder paper              # first run downloads the files

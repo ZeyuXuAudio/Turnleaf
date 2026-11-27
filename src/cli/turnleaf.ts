@@ -139,7 +139,9 @@ export async function run(argv: string[], io: Io): Promise<number> {
   let parsed: ReturnType<typeof parse>;
   try { parsed = parse(argv); } catch (error) { io.err(String((error as Error).message)); io.err(usage); return exitCodes.usage; }
   const { command, positional, options } = parsed;
-  if (!command || options.help || command === 'help') { (command ? io.out : io.err)(usage); return command ? exitCodes.ok : exitCodes.usage; }
+  // Help asked for (--help or help) goes to stdout and succeeds; no command at all is a usage error.
+  if (options.help || command === 'help') { io.out(usage); return exitCodes.ok; }
+  if (!command) { io.err(usage); return exitCodes.usage; }
   const folder = resolve(io.cwd, String(options.folder ?? '.'));
   const print = (text: string, data: unknown) => io.out(options.json ? JSON.stringify(data, null, 2) : text);
   const controller = new AbortController();

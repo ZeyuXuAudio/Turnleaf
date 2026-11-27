@@ -116,6 +116,17 @@ test('cli: without a session it exits with the signed-out code; unknown commands
   } finally { await c.close(); }
 });
 
+test('cli: --help and help print the usage to stdout and succeed; no command is a usage error', async () => {
+  for (const argv of [['--help'], ['help'], ['send', '--help'], []]) {
+    const out: string[] = [], err: string[] = [];
+    const code = await run(argv, { out: line => out.push(line), err: line => err.push(line), env: {}, cwd: tmpdir() });
+    const asked = argv.length > 0;
+    assert.equal(code, asked ? exitCodes.ok : exitCodes.usage, argv.join(' '));
+    assert.match((asked ? out : err).join('\n'), /^Usage: turnleaf/);
+    assert.deepEqual(asked ? err : out, []);
+  }
+});
+
 test('cli: link refuses a .turnleaf folder that is a symbolic link', async () => {
   const c = await cli(), elsewhere = await mkdtemp(join(tmpdir(), 'turnleaf-cli-elsewhere-'));
   try {

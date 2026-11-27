@@ -2,9 +2,10 @@
 
 `turnleaf` runs the same Get latest, review files and Send as the extension, without an editor. It is meant for scripts and AI agents, for example a bot account that reviews a paper and leaves comments on Overleaf.
 
-It is a separate build and is not part of the extension package:
+It is a separate build and is not part of the extension package or the VSIX. Build it from a copy of the repository with Node.js 22 or newer:
 
 ```sh
+git clone https://github.com/ZeyuXuAudio/Turnleaf.git && cd Turnleaf
 npm ci --ignore-scripts
 npm run build:cli
 node dist/cli.js --help
