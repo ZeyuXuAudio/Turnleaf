@@ -8,7 +8,9 @@ import { anchorStateLabel, inspectionCounts, renderInspection } from '../core/re
 import { safeError, SessionExpiredError, SyncError } from '../core/errors';
 import { ProbeRecorder, ProbeSnapshot } from '../core/probe';
 import { installWorkspace, CommandMode } from './workspace';
-import { withOperation, progress, currentOperation } from '../core/operation';
+import { progress, currentOperation } from '../core/operation';
+import { ActionLog, describe, operationLabel, pressTag, Press, ActionResult, SEND_COMMANDS } from '../core/actionLog';
+import { CommandRunner, FinishedRecord } from '../core/commands';
 import { browserSignIn, closeLeftoverSignInBrowser, closeSignInBrowsers, findBrowser, LeftoverSignInWindowError } from '../core/browserSignIn';
 import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -50,6 +52,16 @@ export interface TestApi {
   reviewView(): ProjectView;
   /** The status line and connection of every panel render so far. */
   reviewRenders(): { state: string; connected: boolean }[];
+  /** When the summary shown last changed. */
+  summaryChangedAt(): number | undefined;
+  /** The answer the next Send confirmation gets, in place of the modal. */
+  answerConfirmation(answer: string | undefined): void;
+  /** A message as the project view posts it (a press, a release, a command). */
+  viewMessage(surface: 'sidebar' | 'panel', message: unknown): void;
+  /** Every line written to the Turnleaf output channel. */
+  outputLines(): string[];
+  /** Resolves once every press-record line queued so far is written. */
+  actionsWritten(): Promise<void>;
 }
 export interface LiveProbeApi {
   sessionStored(): Promise<boolean>;
@@ -63,7 +75,15 @@ export interface LiveProbeApi {
 export function deactivate(): Promise<void> { return closeSignInBrowsers(); }
 
 export function activate(context: vscode.ExtensionContext): TestApi | LiveProbeApi | undefined {
-  const output = vscode.window.createOutputChannel('Turnleaf');
+  // A log channel: VS Code puts the time on every line and offers a level filter.
+  const output = vscode.window.createOutputChannel('Turnleaf', { log: true });
+  const version = String(context.extension.packageJSON.version);
+  // The editor test reads back what the output channel was given.
+  const outputLines: string[] = [];
+  if (context.extensionMode === vscode.ExtensionMode.Test) for (const level of ['appendLine', 'info', 'warn', 'error'] as const) {
+    const original = output[level].bind(output) as (text: string) => void;
+    (output as unknown as Record<string, (text: string) => void>)[level] = text => { outputLines.push(text); original(text); };
+  }
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
   const documents = new InspectionDocuments();
   const comments = vscode.comments.createCommentController('turnleaf', 'Overleaf inspection');
@@ -71,9 +91,55 @@ export function activate(context: vscode.ExtensionContext): TestApi | LiveProbeA
   const openedDocuments = new Map<string, vscode.Uri>();
   const threads: vscode.CommentThread[] = [];
   let latest: Inspection | undefined;
-  let busy = false;
-  let backgroundAbort: AbortController | undefined, backgroundDone: Promise<boolean> | undefined;
   let ready: Promise<unknown> = Promise.resolve();
+  // The press record: `.turnleaf/projects/<key>/actions.jsonl` beside the output channel.
+  const log = new ActionLog({ version, session: vscode.env.sessionId, pid: process.pid, app: vscode.env.appName, editor: vscode.version }, message => output.warn(message));
+  const modes = new Map<string, CommandMode | undefined>();
+  // Commands that only move the view (thread opens, view toggles) go to the output channel only.
+  const filed = (command: string) => modes.get(`turnleaf.${command}`) !== 'quiet' || command === 'saveAll';
+  const target = (command: string) => filed(command) ? workspace.actionTarget() : undefined;
+  const short = (id: string) => id.replace(/^turnleaf\./, '');
+  const title = (command: string, surface: string | undefined, press: boolean) => `${operationLabel(command)} ${press ? 'press' : 'command'} (${surface ?? 'command'}, ${version})`;
+  const write = (line: string, result: ActionResult) => result.outcome === 'failed' ? output.warn(line) : output.info(line);
+  const runner = new CommandRunner({
+    ready: () => ready,
+    progress: (mode, task) => vscode.window.withProgress({ location: mode === 'window' ? vscode.ProgressLocation.Window : vscode.ProgressLocation.Notification, title: 'Turnleaf', cancellable: mode !== 'window' }, async (progress, token) => {
+      const abort = new AbortController(), subscription = token.onCancellationRequested(() => abort.abort());
+      try { return await task(abort.signal, message => progress.report({ message })); }
+      finally { subscription.dispose(); }
+    }),
+    received(record) {
+      const command = short(record.command);
+      // Its finished line goes where this one went: a command that links the project (the first Get latest) stays out of the file.
+      record.target = target(command);
+      void log.write(record.target, { event: 'received', seq: record.seq, command, surface: record.surface });
+      workspace.commandReceived(command);
+    },
+    finished(record: FinishedRecord) {
+      const command = short(record.command);
+      // The probe follows commands that ran; one refused as busy never started.
+      if (record.result.outcome !== 'busy') probe?.finished(record.command, new Date(record.received), record.error);
+      write(`${title(command, record.surface, record.pressed)} — ${describe(record.result, record.durationMs)}${record.waitMs >= 200 ? ` (waited ${record.waitMs} ms first)` : ''}`, record.result);
+      void log.write(record.target, { event: 'finished', seq: record.seq, command, surface: record.surface, durationMs: record.durationMs, waitMs: record.waitMs, ...record.result });
+      workspace.commandFinished(command, record.result);
+    },
+    failed(id, error, quiet) {
+      if (!quiet && (error instanceof SessionExpiredError || error instanceof Error && error.cause instanceof SessionExpiredError)) {
+        clients.clear(); workspace.setSessionState('expired');
+        void vscode.window.showErrorMessage('Overleaf session expired', 'Sign in again').then(choice => { if (choice) void vscode.commands.executeCommand('turnleaf.signIn'); });
+      } else if (!(error instanceof SyncError && error.code === 'cancelled')) void vscode.window.showErrorMessage(safeError(error), { modal: !quiet && error instanceof SyncError && error.code === 'push' });
+    },
+    // Send and Send undo say it in the summary instead of a pop-up.
+    busy(id) { if (!SEND_COMMANDS.has(short(id))) void vscode.window.showInformationMessage('An Overleaf operation is already running.'); },
+    changed: () => workspace.operationChanged(),
+  });
+  const presses = {
+    pressed(press: Press) { press.target = target(press.command); void log.write(press.target, { event: 'press', seq: press.seq, command: press.command, surface: press.surface, disabled: press.disabled, detail: press.detail }); },
+    ended(press: Press, result: ActionResult) {
+      write(`${title(press.command, press.surface, true)} — ${describe(result)}`, result);
+      void log.write(press.target, { event: 'press-ended', seq: press.seq, command: press.command, surface: press.surface, ...result });
+    },
+  };
   // Sanitized counts and shapes for scripts/live.mjs; never enabled in an installed extension.
   const probe = context.extensionMode === vscode.ExtensionMode.Development && process.env.TURNLEAF_LIVE_PROBE === '1' ? new ProbeRecorder() : undefined;
   status.text = 'Overleaf: ready';
@@ -89,7 +155,7 @@ export function activate(context: vscode.ExtensionContext): TestApi | LiveProbeA
     documents.clear();
     status.text = 'Overleaf: ready';
   };
-  context.subscriptions.push(output, status, documents, comments, { dispose() { backgroundAbort?.abort(); } },
+  context.subscriptions.push(output, status, documents, comments, { dispose() { runner.abort(); } },
     vscode.workspace.registerTextDocumentContentProvider('overleaf-inspection', documents),
     vscode.workspace.onDidChangeConfiguration(event => { if (['baseUrl', 'projectId', 'trackedFiles'].some(key => event.affectsConfiguration(`turnleaf.${key}`))) { clients.clear(); clear(); } }),
     context.secrets.onDidChange(() => clients.clear()));
@@ -218,54 +284,19 @@ export function activate(context: vscode.ExtensionContext): TestApi | LiveProbeA
     editor.revealRange(new vscode.Range(0, 0, 0, 0));
     return uri;
   }
-  // 'window' shows progress in the status bar instead of a notification.
-  async function run(id: string, action: () => Promise<unknown>, mode?: 'window'): Promise<void> {
-    if (backgroundAbort) { backgroundAbort.abort(); await backgroundDone?.catch(() => {}); }
-    if (busy) { void vscode.window.showInformationMessage('An Overleaf operation is already running.'); return; }
-    busy = true;
-    workspace.operationChanged();
-    const started = new Date();
-    try {
-      await ready;
-      await vscode.window.withProgress({ location: mode === 'window' ? vscode.ProgressLocation.Window : vscode.ProgressLocation.Notification, title: 'Turnleaf', cancellable: mode !== 'window' }, async (progress, token) => {
-        const abort = new AbortController(), subscription = token.onCancellationRequested(() => abort.abort());
-        try { return await withOperation({ signal: abort.signal, report: message => progress.report({ message }) }, action); }
-        finally { subscription.dispose(); }
-      });
-      probe?.finished(id, started);
-    } catch (error) {
-      probe?.finished(id, started, error);
-      if (error instanceof SessionExpiredError || error instanceof Error && error.cause instanceof SessionExpiredError) {
-        clients.clear(); workspace.setSessionState('expired');
-        void vscode.window.showErrorMessage('Overleaf session expired', 'Sign in again').then(choice => { if (choice) void vscode.commands.executeCommand('turnleaf.signIn'); });
-      } else if (!(error instanceof SyncError && error.code === 'cancelled')) void vscode.window.showErrorMessage(safeError(error), { modal: error instanceof SyncError && error.code === 'push' });
-      output.appendLine(safeError(error));
-    } finally { busy = false; workspace.operationChanged(); }
-  }
-  // Moving around the review (opening a thread, toggling a view) neither
-  // contacts Overleaf nor waits for a running operation, so it shows no progress.
-  async function quietly(id: string, action: () => Promise<unknown>): Promise<void> {
-    const started = new Date();
-    try { await ready; await action(); probe?.finished(id, started); }
-    catch (error) {
-      probe?.finished(id, started, error);
-      if (!(error instanceof SyncError && error.code === 'cancelled')) void vscode.window.showErrorMessage(safeError(error));
-      output.appendLine(safeError(error));
-    }
-  }
-  const register = (id: string, action: (...args: any[]) => Promise<unknown>, mode?: CommandMode) => context.subscriptions.push(vscode.commands.registerCommand(id, (...args: any[]) => mode === 'quiet' ? quietly(id, () => action(...args)) : run(id, () => action(...args), mode)));
+  // 'quiet': no progress and no lock, for commands that only move the view; 'window': status-bar progress.
+  // A command from the project view carries a press tag as its last argument: which press, and where.
+  const register = (id: string, action: (...args: any[]) => Promise<unknown>, mode?: CommandMode) => {
+    modes.set(id, mode);
+    context.subscriptions.push(vscode.commands.registerCommand(id, (...args: any[]) => {
+      const tag = pressTag(args.at(-1)); if (tag) args.pop();
+      const options = { seq: tag?.seq, surface: tag?.surface };
+      return mode === 'quiet' ? runner.quietly(id, () => action(...args), options) : runner.run(id, () => action(...args), { ...options, mode });
+    }));
+  };
   const workspace = installWorkspace(context, { scope, reader, text: (path, text) => documents.add(path, text), register, output, status,
-    isBusy: () => busy && !backgroundAbort,
-    background: async action => {
-      if (busy) return false;
-      const abort = new AbortController(); backgroundAbort = abort; busy = true;
-      backgroundDone = (async () => {
-        try { await ready; await withOperation({ signal: abort.signal, report() {} }, action); return true; }
-        catch (error) { if (error instanceof SessionExpiredError) { clients.clear(); workspace.setSessionState('expired'); } throw error; }
-        finally { busy = false; backgroundAbort = undefined; workspace.operationChanged(); }
-      })();
-      return backgroundDone;
-    },
+    isBusy: () => runner.isBusy(), operation: () => runner.operation(), presses,
+    background: action => runner.background(action, error => { if (error instanceof SessionExpiredError) { clients.clear(); workspace.setSessionState('expired'); } }),
   });
   register('turnleaf.signIn', () => signIn());
   register('turnleaf.signInWithCookie', () => signInWithCookie());
@@ -294,7 +325,7 @@ export function activate(context: vscode.ExtensionContext): TestApi | LiveProbeA
     await rm(signInProfile(s.baseUrl), { recursive: true, force: true }).catch(error => output.appendLine(`Sign-in profile not removed: ${safeError(error)}`));
     clients.delete(s.baseUrl); workspace.setSessionState('signedOut'); await workspace.disconnect();
   });
-  output.appendLine(`Turnleaf ${context.extension.packageJSON.version} activated. Writes require confirmation. ${vscode.env.appName} ${vscode.version}; Node ${process.versions.node}.`);
+  output.appendLine(`Turnleaf ${version} activated. Writes require confirmation. ${vscode.env.appName} ${vscode.version}; Node ${process.versions.node}; window session ${vscode.env.sessionId.slice(0, 8)}, process ${process.pid}.`);
   const sessionStored = async () => Boolean(await context.secrets.get(secretKey((await scope()).baseUrl)));
   const only = vscode.workspace.workspaceFolders?.length === 1 ? vscode.workspace.workspaceFolders[0] : undefined;
   if (context.extensionMode !== vscode.ExtensionMode.Test && only) {
@@ -315,11 +346,12 @@ export function activate(context: vscode.ExtensionContext): TestApi | LiveProbeA
       if (!(await vscode.workspace.findFiles('**/*.tex', '**/node_modules/**', 1)).length) return;
       await vscode.commands.executeCommand('turnleaf.showOverview'); await context.workspaceState.update('turnleaf.overviewIntroduced', true);
     })().catch(error => output.appendLine(safeError(error))), 500);
-    context.subscriptions.push({ dispose() { clearTimeout(timer); backgroundAbort?.abort(); } });
+    context.subscriptions.push({ dispose() { clearTimeout(timer); runner.abort(); } });
   }
   if (probe) return { sessionStored, projects: async () => (await reader(await scope())).listProjects(), snapshot: () => probe.snapshot() };
   if (context.extensionMode === vscode.ExtensionMode.Test) return {
     signIn, inspect, openFile: async path => (await openFile(path))!, sessionStored, refreshLocal: workspace.refresh, restoreLocal: async (startup?: boolean) => { workspace.clear(); await workspace.restoreCached({ startup }); if (startup) await workspace.checkNow(); }, reviewSnapshot: workspace.snapshot, reviewThread: workspace.threadForTest, reviewCommentingRanges: workspace.commentingRangesForTest, reviewView: workspace.viewForTest, reviewRenders: workspace.rendersForTest, summarySettled: workspace.summarySettledForTest,
+    summaryChangedAt: workspace.summaryChangedAtForTest, answerConfirmation: workspace.answerConfirmationForTest, viewMessage: workspace.viewMessageForTest, outputLines: () => [...outputLines], actionsWritten: () => log.flushed(),
     runtime: () => ({ node: process.versions.node, editor: vscode.version, app: vscode.env.appName }),
   };
   return undefined;
