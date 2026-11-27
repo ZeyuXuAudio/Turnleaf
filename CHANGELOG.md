@@ -2,6 +2,12 @@
 
 All notable user-facing changes to Turnleaf are listed here, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.10.7
+
+### Changed
+
+- Git now ignores everything in `.turnleaf/`, including `.turnleaf/projects/<project-key>/` with its sync state, history, review files and press record. Turnleaf keeps a `.gitignore` file containing `*` inside `.turnleaf/`, so `git status` no longer lists the folder and `git add -A` does not commit it. Turnleaf still does not run Git or change your own `.gitignore` or `.git` folder. It writes the file again when it is missing and leaves an edited copy as it is.
+
 ## 0.10.6
 
 ### Added
