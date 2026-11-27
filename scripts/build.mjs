@@ -1,5 +1,6 @@
 import { build } from 'esbuild';
 import { mkdir, readFile, readdir, writeFile, copyFile } from 'node:fs/promises';
+import { buildCli } from './build-cli.mjs';
 await mkdir('dist', { recursive: true });
 const result = await build({ entryPoints: ['src/extension/extension.ts'], bundle: true, platform: 'node', format: 'cjs',
   target: 'node18', outfile: 'dist/extension.js', external: ['vscode'], metafile: true, sourcemap: false,
@@ -15,7 +16,11 @@ for (const output of [...Object.values(result.metafile.outputs), ...Object.value
 }
 await writeFile('dist/metafile.json', JSON.stringify(result.metafile, null, 2));
 for (const file of ['pdf.mjs', 'pdf.worker.mjs']) await copyFile(`node_modules/pdfjs-dist/legacy/build/${file}`, `dist/${file}`);
-const roots = new Set(Object.keys(result.metafile.inputs).filter(path => path.includes('node_modules/')).map(path => {
+// The notices cover every bundle: the extension, the comment worker and the command line (checked, not written, here).
+const cli = await buildCli({ write: false });
+// Paths start at the first node_modules/, so a node_modules that is a link elsewhere (esbuild reports real paths) gives the same entries and order.
+const roots = new Set([...Object.keys(result.metafile.inputs), ...Object.keys(cli.inputs)].filter(path => path.includes('node_modules/')).map(full => {
+  const path = full.slice(full.indexOf('node_modules/'));
   const start = path.lastIndexOf('node_modules/') + 'node_modules/'.length;
   const parts = path.slice(start).split('/');
   return path.slice(0, start) + parts.slice(0, parts[0].startsWith('@') ? 2 : 1).join('/');
@@ -179,4 +184,4 @@ for (const root of [...roots].sort()) {
   if (embedded[pkg.name]) notices += `${embedded[pkg.name]}\n\n`;
 }
 await writeFile('THIRD_PARTY_NOTICES.md', notices.replace(/\r\n?/g, '\n').replace(/[ \t]+$/gm, '').trimEnd() + '\n');
-console.log('Built extension and comment worker; no olcli configuration store in bundle.');
+console.log('Built extension and comment worker, checked the command-line bundle; no olcli configuration store in either.');
