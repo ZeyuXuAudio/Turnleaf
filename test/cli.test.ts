@@ -1,24 +1,29 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, writeFile, rm, mkdir, readdir, symlink } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, rm, mkdir, readdir, symlink, stat, chmod } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { run, exitCodes } from '../src/cli/turnleaf';
-import { fixtureCookie, startFixtureServer } from './fixtureServer';
-import { turnleafIgnore } from '../src/core/projectStore';
+import { run, exitCodes, failureOf, policyProblems, signInProfile } from '../src/cli/turnleaf';
+import { fixtureCookie, fixtureOwner, startFixtureServer } from './fixtureServer';
+import { createHash } from 'node:crypto';
+import { ProjectStore, turnleafIgnore } from '../src/core/projectStore';
+import { SessionExpiredError, SyncError } from '../src/core/errors';
+import type { PushPlan } from '../src/core/folderWorkflow';
 
 async function cli(options: { trackChanges?: boolean; cookie?: string | null } = {}) {
   const fixture = await startFixtureServer({ writable: true, trackChanges: options.trackChanges ?? true });
   fixture.replies.modern[0] = { content: 'Rain was excluded.\n\nMethods.\n\nResults.\n\nDrift: 0.64.\n', comments: [{ id: 'c1', ranges: [{ pos: 0, length: 4 }] }], trackedChanges: [] };
   const root = await mkdtemp(join(tmpdir(), 'turnleaf-cli-')), config = await mkdtemp(join(tmpdir(), 'turnleaf-cli-config-'));
   const env: NodeJS.ProcessEnv = { XDG_CONFIG_HOME: config, ...options.cookie !== null && { TURNLEAF_COOKIE: options.cookie ?? fixtureCookie } };
-  const exec = async (...argv: string[]) => {
+  // raw: exactly these arguments and environment additions, without --folder and --base-url.
+  const raw = async (argv: string[], extra: NodeJS.ProcessEnv = {}) => {
     const out: string[] = [], err: string[] = [];
-    const code = await run([...argv, '--folder', root, '--base-url', fixture.baseUrl], { out: line => out.push(line), err: line => err.push(line), env, cwd: root });
+    const code = await run(argv, { out: line => out.push(line), err: line => err.push(line), env: { ...env, ...extra }, cwd: root });
     return { code, out: out.join('\n'), err: err.join('\n'), json: () => JSON.parse(out.join('\n')) };
   };
+  const exec = (...argv: string[]) => raw([...argv, '--folder', root, '--base-url', fixture.baseUrl]);
   const reviewDir = async () => (await exec('pull', '--json')).json().reviewFiles as string;
-  return { fixture, root, exec, reviewDir, close: async () => { await fixture.close(); await rm(root, { recursive: true, force: true }); await rm(config, { recursive: true, force: true }); } };
+  return { fixture, root, config, env, raw, exec, reviewDir, close: async () => { await fixture.close(); await rm(root, { recursive: true, force: true }); await rm(config, { recursive: true, force: true }); } };
 }
 
 test('cli: link, pull into an empty folder, queue a new comment from a file and send it only with --yes', async () => {
@@ -56,7 +61,8 @@ test('cli: edits are refused while Track Changes is off unless --allow-untracked
     const version = c.fixture.replies.modern[1];
     const refused = await c.exec('send', '--yes', '--json');
     assert.equal(refused.code, exitCodes.blocked);
-    assert.match(refused.json().blocked, /Track Changes is off/);
+    assert.match(refused.json().error, /Track Changes is off/);
+    assert.equal(refused.json().code, 'policy');
     assert.equal(c.fixture.replies.modern[1], version);
     const sent = await c.exec('send', '--yes', '--allow-untracked-edits');
     assert.equal(sent.code, exitCodes.ok, sent.err);
@@ -112,6 +118,8 @@ test('cli: without a session it exits with the signed-out code; unknown commands
     await mkdir(join(c.root, '.turnleaf'), { recursive: true });
     await c.exec('link', 'test-project', '--files', 'main.tex');
     assert.equal((await c.exec('pull')).code, exitCodes.signedOut);
+    const json = await c.exec('pull', '--json');
+    assert.deepEqual({ code: json.code, ...json.json(), error: undefined }, { code: 'session-expired', exitCode: exitCodes.signedOut, error: undefined });
     assert.equal((await c.exec('frobnicate')).code, exitCodes.usage);
   } finally { await c.close(); }
 });
@@ -136,4 +144,220 @@ test('cli: link refuses a .turnleaf folder that is a symbolic link', async () =>
     assert.match(linked.err, /symbolic link/);
     assert.deepEqual(await readdir(elsewhere), []);
   } finally { await c.close(); await rm(elsewhere, { recursive: true, force: true }); }
+});
+
+test('cli: a linked folder sends an unscoped cookie only to the server the caller named', async () => {
+  const c = await cli();
+  try {
+    await c.exec('link', 'test-project', '--files', 'main.tex');
+    const before = c.fixture.requests.length;
+    // Another server named on the command line than the one in .turnleaf/cli.json.
+    const other = await c.raw(['pull', '--folder', c.root, '--base-url', 'https://other.example']);
+    assert.equal(other.code, exitCodes.usage);
+    assert.match(other.err, /linked to/);
+    // No server named: TURNLEAF_COOKIE and a chosen session file only go to the default server.
+    assert.equal((await c.raw(['pull', '--folder', c.root])).code, exitCodes.usage);
+    const file = join(c.config, 'chosen-session');
+    await writeFile(file, fixtureCookie, { mode: 0o600 });
+    assert.equal((await c.raw(['status', '--folder', c.root, '--session-file', file], { TURNLEAF_COOKIE: '' })).code, exitCodes.usage);
+    assert.equal(c.fixture.requests.length, before, 'nothing reached the linked server');
+    // Named on the command line or in TURNLEAF_BASE_URL, the linked server is used.
+    assert.equal((await c.raw(['pull', '--folder', c.root, '--base-url', c.fixture.baseUrl])).code, exitCodes.ok);
+    assert.equal((await c.raw(['status', '--folder', c.root], { TURNLEAF_BASE_URL: c.fixture.baseUrl })).code, exitCodes.ok);
+    // The default session file belongs to one server, so the link's server needs no naming.
+    const origin = createHash('sha256').update(new URL(c.fixture.baseUrl).origin).digest('hex').slice(0, 16);
+    await mkdir(join(c.config, 'turnleaf'), { recursive: true });
+    await writeFile(join(c.config, 'turnleaf', `session-${origin}`), fixtureCookie + '\n', { mode: 0o600 });
+    const own = await c.raw(['status', '--folder', c.root], { TURNLEAF_COOKIE: '' });
+    assert.equal(own.code, exitCodes.ok, own.err);
+  } finally { await c.close(); }
+});
+
+test('cli: unknown options, options of another command and extra arguments are usage errors before any credential is read', async () => {
+  const c = await cli({ cookie: null });
+  try {
+    for (const argv of [['send', '--yes', '--foler', 'other-paper'], ['projects', 'surplus'], ['pull', '--yes'], ['status', '--take-overleaf'], ['projects', '--unused=value'],
+      ['projects', '--base-url', 'not a url'], ['link', 'test-project', '--files', 'figure.pdf'], ['send', '--dry-run', 'extra'], ['send', '--comments-only'], ['send', '--yes', '--dry-run']]) {
+      const result = await c.raw([...argv, '--folder', c.root]);
+      assert.equal(result.code, exitCodes.usage, `${argv.join(' ')}: ${result.err}`);
+    }
+    // With --json the refusal is a JSON object on stdout.
+    const usage = await c.raw(['send', '--folder', c.root, '--json']);
+    assert.deepEqual({ ...usage.json(), error: undefined }, { error: undefined, code: 'usage', exitCode: exitCodes.usage });
+    assert.equal(c.fixture.requests.length, 0);
+  } finally { await c.close(); }
+});
+
+const planOf = (over: Record<string, unknown>) => ({ inspection: { trackChanges: true, userId: fixtureOwner }, files: [], pending: [], comments: [], ...over }) as unknown as PushPlan;
+const fileOf = (path: string, extra: Record<string, unknown> = {}) => ({ doc: { path }, text: 'Text.\n', added: 1, removed: 0, ...extra });
+
+test('cli policy: edits need tracking with a known user, and a created file with content needs --allow-untracked-edits', () => {
+  assert.deepEqual(policyProblems(planOf({ files: [fileOf('main.tex')] }), {}), []);
+  // The writer tracks an edit only with Track Changes on and the account's user ID.
+  assert.match(policyProblems(planOf({ inspection: { trackChanges: true }, files: [fileOf('main.tex')] }), {})[0], /Track Changes is off/);
+  assert.match(policyProblems(planOf({ inspection: { trackChanges: false, userId: fixtureOwner }, files: [fileOf('main.tex')] }), {})[0], /Track Changes is off/);
+  // A created file's content is always plain text, Track Changes or not.
+  assert.match(policyProblems(planOf({ files: [fileOf('appendix.tex', { create: { folders: [] } })] }), {})[0], /plain text/);
+  assert.deepEqual(policyProblems(planOf({ files: [fileOf('appendix.tex', { create: { folders: [] }, text: '' })] }), {}), []);
+  assert.deepEqual(policyProblems(planOf({ inspection: {}, files: [fileOf('main.tex'), fileOf('appendix.tex', { create: { folders: [] } })] }), { allowUntrackedEdits: true }), []);
+});
+
+test('cli policy: --comments-only refuses accepting or rejecting suggestions', () => {
+  const decision = { id: 'd1', kind: 'acceptChange', path: 'main.tex', docId: 'modern', threadId: '' }, reply = { id: 'r1', kind: 'reply', path: 'main.tex', docId: 'modern', threadId: 'c1', text: 'Done.' };
+  assert.match(policyProblems(planOf({ pending: [reply, decision] }), { commentsOnly: true }).join('\n'), /suggestion decision/);
+  assert.match(policyProblems(planOf({ pending: [{ ...decision, kind: 'rejectChange' }] }), { commentsOnly: true }).join('\n'), /reject in main\.tex/);
+  assert.deepEqual(policyProblems(planOf({ pending: [reply] }), { commentsOnly: true }), []);
+  assert.deepEqual(policyProblems(planOf({ pending: [decision] }), {}), []);
+});
+
+test('cli: creating a selected local-only file with content is refused without --allow-untracked-edits', async () => {
+  const c = await cli();
+  try {
+    await writeFile(join(c.root, 'appendix.tex'), 'Appendix.\n');
+    await c.exec('link', 'test-project', '--files', 'main.tex,appendix.tex');
+    const pulled = await c.exec('pull');
+    assert.equal(pulled.code, exitCodes.ok, pulled.err);
+    const refused = await c.exec('send', '--yes', '--json');
+    assert.equal(refused.code, exitCodes.blocked);
+    assert.match(refused.json().error, /appendix\.tex on Overleaf puts the content in as plain text/);
+    assert(!c.fixture.tree.docs.some((doc: { name: string }) => doc.name === 'appendix.tex'));
+    const sent = await c.exec('send', '--yes', '--allow-untracked-edits');
+    assert.equal(sent.code, exitCodes.ok, sent.err);
+    assert(c.fixture.tree.docs.some((doc: { name: string }) => doc.name === 'appendix.tex'));
+  } finally { await c.close(); }
+});
+
+test('cli: the first pull records the sync baseline even when the folder already holds Overleaf\'s text and nothing comes in', async () => {
+  const c = await cli();
+  try {
+    c.fixture.replies.modern[0].comments = [];
+    for (const id of Object.keys(c.fixture.threads)) delete c.fixture.threads[id];
+    await c.exec('link', 'test-project', '--files', 'main.tex');
+    await writeFile(join(c.root, 'main.tex'), c.fixture.replies.modern[0].content);
+    const pulled = await c.exec('pull', '--json');
+    assert.equal(pulled.code, exitCodes.ok, pulled.err);
+    assert.equal(pulled.json().changed, true);
+    assert.deepEqual(pulled.json().files, []);
+    const status = await c.exec('status');
+    assert.equal(status.code, exitCodes.ok, status.err);
+    assert.equal((await c.exec('pull', '--json')).json().changed, false);
+  } finally { await c.close(); }
+});
+
+test('cli: a Send with incoming changes applies them to the folder first, then sends', async () => {
+  const c = await cli();
+  try {
+    await c.exec('link', 'test-project', '--files', 'main.tex');
+    const review = await c.reviewDir();
+    // A coauthor edits elsewhere in the file; a reply to c1 is queued here.
+    c.fixture.replies.modern[0].content = c.fixture.replies.modern[0].content.replace('Results.', 'Results, revised.'); c.fixture.replies.modern[1]++;
+    const path = join(review, 'threads', 'c1.json'), thread = JSON.parse(await readFile(path, 'utf8'));
+    thread.localEdits = [{ id: 'reply-1', action: 'reply', text: 'Clarified.' }];
+    await writeFile(path, JSON.stringify(thread, null, 2));
+    const dry = await c.exec('send', '--dry-run', '--json');
+    assert.deepEqual(dry.json().incoming, ['main.tex']);
+    const sent = await c.exec('send', '--yes', '--comments-only', '--json');
+    assert.equal(sent.code, exitCodes.ok, sent.err);
+    assert.match(sent.err, /Applied Overleaf's changes to the folder first/);
+    assert.match(await readFile(join(c.root, 'main.tex'), 'utf8'), /Results, revised\./);
+    assert(c.fixture.threads.c1.messages.some((message: { content: string }) => message.content === 'Clarified.'));
+    assert.equal((await c.exec('status')).code, exitCodes.ok);
+  } finally { await c.close(); }
+});
+
+test('cli: exit codes follow the error code, whichever layer raised it', () => {
+  assert.equal(failureOf(new SessionExpiredError()).exitCode, exitCodes.signedOut);
+  // Apply and Send rethrow a new SyncError with the same code.
+  assert.equal(failureOf(new SyncError('Overleaf session expired', 'session-expired')).exitCode, exitCodes.signedOut);
+  assert.equal(failureOf(new SyncError('Only your own messages can be edited or deleted.', 'read-only')).exitCode, exitCodes.blocked);
+  assert.equal(failureOf(new SyncError('Review file invalid.', 'review-files')).exitCode, exitCodes.blocked);
+  assert.equal(failureOf(new SyncError('Unsupported response.', 'protocol')).exitCode, exitCodes.failed);
+  assert.equal(failureOf(new Error('raw')).message, 'Overleaf request failed. Please try again.');
+});
+
+test('cli: session files are refused when linked, readable by others or inside the working folder; each one signs in with its own profile', async () => {
+  const c = await cli();
+  try {
+    await c.exec('link', 'test-project', '--files', 'main.tex');
+    const real = join(c.config, 'real-session'), linked = join(c.config, 'linked-session'), open = join(c.config, 'open-session');
+    await writeFile(real, fixtureCookie, { mode: 0o600 }); await symlink(real, linked);
+    await writeFile(open, fixtureCookie); await chmod(open, 0o644);
+    const args = (file: string) => ['projects', '--base-url', c.fixture.baseUrl, '--session-file', file];
+    assert.equal((await c.raw(args(real), { TURNLEAF_COOKIE: '' })).code, exitCodes.ok);
+    const viaLink = await c.raw(args(linked), { TURNLEAF_COOKIE: '' });
+    assert.equal(viaLink.code, exitCodes.failed); assert.match(viaLink.err, /symbolic link/);
+    const readable = await c.raw(args(open), { TURNLEAF_COOKIE: '' });
+    assert.equal(readable.code, exitCodes.failed); assert.match(readable.err, /others can read it/);
+    const inFolder = join(c.root, 'session');
+    await writeFile(inFolder, fixtureCookie, { mode: 0o600 });
+    assert.equal((await c.raw(['pull', '--folder', c.root, '--base-url', c.fixture.baseUrl, '--session-file', inFolder], { TURNLEAF_COOKIE: '' })).code, exitCodes.usage);
+    // The link file is private and written in one step.
+    assert.equal((await stat(join(c.root, '.turnleaf', 'cli.json'))).mode & 0o777, 0o600);
+    assert.deepEqual((await readdir(join(c.root, '.turnleaf'))).filter(name => name.endsWith('.tmp')), []);
+  } finally { await c.close(); }
+  const one = signInProfile('/config/turnleaf/a', 'https://www.overleaf.com');
+  assert.equal(one.startsWith('/config/turnleaf/sign-in-'), true);
+  assert.notEqual(one, signInProfile('/config/turnleaf/b', 'https://www.overleaf.com'));
+  assert.notEqual(one, signInProfile('/config/turnleaf/a', 'https://overleaf.example.org'));
+});
+
+test('cli: status regenerates the review files from what it fetched', async () => {
+  const c = await cli();
+  try {
+    await c.exec('link', 'test-project', '--files', 'main.tex');
+    const review = await c.reviewDir();
+    c.fixture.threads.c9 = { resolved: false, messages: [{ id: 'c9-m1', user: { id: 'reviewer', name: 'Fixture Reviewer' }, content: 'New question.', timestamp: '2026-11-27T12:00:00Z' }] };
+    c.fixture.replies.modern[0].comments.push({ id: 'c9', ranges: [{ pos: 5, length: 3 }] });
+    const status = await c.exec('status');
+    assert.equal(status.code, exitCodes.ok, status.err);
+    assert.match(await readFile(join(review, 'threads', 'c9.json'), 'utf8'), /New question\./);
+  } finally { await c.close(); }
+});
+
+test('cli: pull output names pictures and the files taken from Overleaf', async () => {
+  const c = await cli();
+  try {
+    c.fixture.addEntry('figures/plot.png', 'file', Buffer.from('fictional picture bytes'));
+    await c.exec('link', 'test-project', '--files', 'main.tex');
+    const first = await c.exec('pull', '--pictures', '--dry-run', '--json');
+    assert.equal(first.code, exitCodes.ok, first.err);
+    assert.deepEqual(first.json().pictures.map((picture: { path: string; kind: string }) => [picture.path, picture.kind]), [['figures/plot.png', 'new']]);
+    await c.exec('pull');
+    await writeFile(join(c.root, 'main.tex'), (await readFile(join(c.root, 'main.tex'), 'utf8')).replace('0.64', '0.60'));
+    c.fixture.replies.modern[0].content = c.fixture.replies.modern[0].content.replace('0.64', '0.58'); c.fixture.replies.modern[1]++;
+    const took = await c.exec('pull', '--take-overleaf', '--json');
+    assert.equal(took.code, exitCodes.ok, took.err);
+    assert.deepEqual(took.json().files.map((file: { path: string; tookOverleaf?: boolean }) => [file.path, file.tookOverleaf]), [['main.tex', true]]);
+  } finally { await c.close(); }
+});
+
+test('cli: linking the same project with other files is refused while drafts are queued', async () => {
+  const c = await cli();
+  try {
+    await c.exec('link', 'test-project', '--files', 'main.tex');
+    const review = await c.reviewDir();
+    await writeFile(join(review, 'new', 'agent-1.json'), JSON.stringify({ id: 'agent-1', path: 'main.tex', quote: 'Methods.', text: 'Sampling rate?' }));
+    assert.equal((await c.exec('status')).code, exitCodes.ok);
+    const relinked = await c.exec('link', 'test-project', '--files', 'main.tex,references.bib', '--json');
+    assert.equal(relinked.code, exitCodes.blocked);
+    assert.equal(relinked.json().code, 'selection');
+    assert.deepEqual(JSON.parse(await readFile(join(c.root, '.turnleaf', 'cli.json'), 'utf8')).paths, ['main.tex']);
+    assert.equal((await c.exec('link', 'test-project', '--files', 'main.tex')).code, exitCodes.ok);
+  } finally { await c.close(); }
+});
+
+test('cli: a queued change of a kind Turnleaf never queues is refused, not sent', async () => {
+  const c = await cli();
+  try {
+    await c.exec('link', 'test-project', '--files', 'main.tex');
+    await c.exec('pull');
+    const store = new ProjectStore(c.root, c.fixture.baseUrl, 'test-project', ['main.tex']), path = await store.path('state.json');
+    const data = JSON.parse(await readFile(path, 'utf8'));
+    data.pending.push({ id: 'drop', kind: 'deleteDoc', path: 'main.tex', docId: 'modern', threadId: 'c1', created: '2026-11-27T12:00:00Z' });
+    await writeFile(path, JSON.stringify(data));
+    const sent = await c.exec('send', '--yes', '--comments-only', '--json');
+    assert.equal(sent.code, exitCodes.failed);
+    assert.equal(sent.json().code, 'cache');
+    assert(c.fixture.tree.docs.some((doc: { _id: string }) => doc._id === 'modern'));
+  } finally { await c.close(); }
 });
