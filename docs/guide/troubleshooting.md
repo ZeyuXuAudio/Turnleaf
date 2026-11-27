@@ -107,8 +107,11 @@ Open **Setup → Project setup → Review appearance** and choose **Use outline 
 | Starting point, queued drafts, recovery copies, sync history, review files | `.turnleaf/projects/<project-key>/` in your folder. |
 | Record of button presses and commands | `.turnleaf/projects/<project-key>/actions.jsonl`, kept under 1 MB with one older copy (`actions.1.jsonl`). |
 | Lock shared by editor windows | `.turnleaf/turnleaf.lock` |
+| Git ignore file for the whole folder | `.turnleaf/.gitignore` |
 
-The `.turnleaf/` folder contains copies of your source text and comments. Keep it private: add `.turnleaf/` to `.gitignore` if the folder is shared, and leave it out of anything you upload or send.
+The `.turnleaf/` folder contains copies of your source text and comments. Keep it private, and leave it out of anything you upload or send.
+
+If your folder is a Git repository, Git ignores all of `.turnleaf/`: Turnleaf puts a `.gitignore` file containing `*` inside it, so `git status` does not list it and `git add -A` does not commit it. Turnleaf does not run Git or change your `.gitignore` or `.git` folder to do this. Turnleaf writes the file again whenever it is missing; if you edit it, Turnleaf leaves your version as it is. Copying the folder by other means, such as a cloud drive or an archive, still copies `.turnleaf/`.
 
 ## Start over
 
