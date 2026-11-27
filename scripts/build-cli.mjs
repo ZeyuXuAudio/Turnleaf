@@ -7,6 +7,8 @@ const result = await build({ entryPoints: ['src/cli/turnleaf.ts'], bundle: true,
   banner: { js: '#!/usr/bin/env node\n/* Turnleaf command line. Includes MIT-licensed adaptations from olcli; see THIRD_PARTY_NOTICES.md. */' } });
 const inputs = Object.keys(result.metafile.inputs);
 if (inputs.some(path => path.startsWith('src/extension/') || path.includes('node_modules/vscode'))) throw new Error('Editor code entered the command-line bundle.');
+// External imports are not inputs: check what the output itself would load at run time.
+if (Object.values(result.metafile.outputs).some(output => output.imports.some(item => item.path === 'vscode' || item.path.startsWith('vscode/')))) throw new Error('The command-line bundle imports vscode, which exists only inside the editor.');
 if (inputs.some(path => path.includes('test/reference/'))) throw new Error('Test-only reference code entered the command-line bundle.');
 if (inputs.some(path => /(?:^|\/)conf\//.test(path) || path.endsWith('/config.js'))) throw new Error('A credential configuration store entered the command-line bundle.');
 if (['src/core/git.ts', 'src/core/sync.ts', 'src/core/workflow.ts'].some(path => result.metafile.outputs['dist/cli.js']?.inputs[path]?.bytesInOutput)) throw new Error('Legacy Git sync code entered the command-line bundle.');

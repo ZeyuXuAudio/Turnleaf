@@ -21,6 +21,8 @@ export interface CommentDraft {
   before?: Thread; anchor?: { from: number; to: number; source: string }; created: string; uncertain?: boolean;
   change?: SuggestionRef;
 }
+/** Every kind a queued draft may have. */
+const draftKinds = new Set<string>(['reply', 'resolve', 'reopen', 'editMessage', 'deleteMessage', 'deleteThread', 'createThread', 'acceptChange', 'rejectChange'] satisfies CommentKind[]);
 export const isDecision = (draft: CommentDraft) => draft.kind === 'acceptChange' || draft.kind === 'rejectChange';
 /**
  * A new comment's selection in the saved `text`: the selected text followed through
@@ -173,6 +175,8 @@ export class ProjectStore {
     try { value = JSON.parse(await readFile(await this.path('state.json'), 'utf8')); }
     catch (error: any) { if (error.code === 'ENOENT') return empty(); throw new SyncError('Cannot read local sync state. Preserve the state file and restore valid JSON before continuing.', 'cache'); }
     if (value.schema !== 2 || !value.anchors || !value.reviews || !Array.isArray(value.pending)) throw new SyncError('Unsupported local sync state. Preserve it before reconnecting.', 'cache');
+    // Only comment and suggestion changes are queued; any other kind (a file deletion, say) was not written by Turnleaf.
+    if (value.pending.some(draft => !draftKinds.has(draft?.kind))) throw new SyncError('The local sync state holds a queued change of an unknown kind. Preserve the state file and restore it before continuing.', 'cache');
     return value;
   }
   async update(change: (data: ProjectData) => void | Promise<void>): Promise<ProjectData> {

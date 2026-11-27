@@ -6,7 +6,11 @@ All notable user-facing changes to Turnleaf are listed here, newest first. The f
 
 ### Added
 
-- A command line, `turnleaf` (`npm run build:cli`, then `node dist/cli.js`), for scripts and AI agents: `sign-in`, `projects`, `link`, `pull`, `status` and `send`, which refuses file edits unless Track Changes is on (`--allow-untracked-edits` to lift it), and with `--comments-only` and `--allow-deletes` checks, JSON output and exit codes. It is not part of the extension package. See [Command line for scripts and agents](docs/guide/command-line.md).
+- A command line, `turnleaf` (`npm run build:cli`, then `node dist/cli.js`), for scripts and AI agents: `sign-in`, `projects`, `link`, `pull`, `status` and `send`. `send` writes only with `--yes`, refuses file edits unless Track Changes is on for the account and a created file with content (`--allow-untracked-edits` lifts both), refuses suggestion decisions and file changes with `--comments-only`, and needs `--allow-deletes` for any deletion. A cookie from `TURNLEAF_COOKIE` or a chosen session file goes only to the server the caller named, never to another one written in a folder's link file, and a session file inside a linked folder is refused; unknown options and empty values are usage errors; every failure is printed as JSON with `--json`, with exit codes by kind. It is not part of the extension package. See [Command line for scripts and agents](docs/guide/command-line.md).
+
+### Fixed
+
+- A local sync state whose queued changes include a kind Turnleaf never queues (for example a file deletion written into `state.json` by hand) is refused with a message instead of being sent.
 
 ## 0.10.7
 
