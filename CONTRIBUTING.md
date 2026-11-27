@@ -47,4 +47,24 @@ No test needs a real Overleaf cookie except `test:live`, which keeps the session
 - Update the [user guide](docs/guide/README.md) and [CHANGELOG.md](CHANGELOG.md) (under **Unreleased**) when behavior changes.
 - Never commit cookies, `.turnleaf/` folders, test profiles or private project content.
 
+## Releasing a new version
+
+For maintainers. Release from the main checkout, on an up-to-date `main` with a clean working tree; merge any branch or worktree first, because a `.vsix` built in a worktree is deleted with it. The steps below use `0.10.8` as the new version.
+
+1. **Test.** `npm run check`, `npm test` and `npm run test:editor` must pass. When the change touches the sidebar or the panel, also run `npm run test:press`.
+2. **Set the version.** Run `npm version 0.10.8 --no-git-tag-version`, which updates `package.json` and `package-lock.json`. In [CHANGELOG.md](CHANGELOG.md), rename `## Unreleased` to `## 0.10.8`.
+3. **Package and check the package.** `npm run package` writes `releases/turnleaf-0.10.8.vsix` (Git ignores `releases/`). Then run `npm run test:installed`, which installs that file into a disposable VS Code profile.
+4. **Commit.** Commit `package.json`, `package-lock.json` and `CHANGELOG.md` as `Release 0.10.8: <the change in a few words>`. The build writes [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) from the bundled packages. If it changed because a dependency was added, removed or updated, commit it too, after checking the diff.
+5. **Tag and push.** Run `git tag v0.10.8`, then `git push origin main v0.10.8`.
+6. **GitHub release.** Cursor users install from here. The notes are the version's CHANGELOG section without its heading:
+
+   ```sh
+   gh release create v0.10.8 releases/turnleaf-0.10.8.vsix --title "Turnleaf 0.10.8" \
+     --notes "$(awk '$0 == "## 0.10.8" { f = 1; next } /^## / { f = 0 } f' CHANGELOG.md)"
+   ```
+
+7. **VS Code Marketplace.** On the [publisher management page](https://marketplace.visualstudio.com/manage/publishers/zeyuxu), choose **⋯ → Update** for Turnleaf and upload the same `.vsix`. The upload is done by hand there; `vsce publish` is not set up. VS Code installs the new version once the Marketplace has verified it, which usually takes a few minutes.
+
+A version that was merged but never published needs no release of its own: the next version's package includes its changes. Add the skipped version's CHANGELOG section to the GitHub release notes, under its own `## <version>` heading.
+
 By contributing, you agree that your contributions are licensed under the [MIT License](LICENSE).
