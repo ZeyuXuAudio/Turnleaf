@@ -1,6 +1,12 @@
 # Troubleshooting
 
-Turnleaf writes what it does, and any errors, to the **Turnleaf** output channel (**View → Output**, then choose **Turnleaf**). Start there when something looks wrong.
+Turnleaf writes what it does, and any errors, to the **Turnleaf** output channel (**View → Output**, then choose **Turnleaf**). Start there when something looks wrong. Each line has its time. Each button press and command gets one line that says what it came to, for example:
+
+```text
+22:37:37 Send press (panel, 0.10.6) — not sent: summary refreshing (live event otUpdateApplied 22:37:36)
+```
+
+The channel also lists each live event from Overleaf and each refresh of the Send summary, with what started it.
 
 ## "Overleaf session expired"
 
@@ -58,6 +64,20 @@ When nothing can be sent, the outgoing summary says why and the main button show
 
 If Send reports **Nothing was sent: the summary changed since it was shown**, Overleaf or your files changed after you looked. The changed rows are marked **Changed**; check them and choose **Send** again.
 
+While the summary refreshes, and for 0.65 s after it changes, **Send** reads **Refreshing…** and cannot be pressed. The line **Updating: …** under the summary says what changed, for example `main.tex saved` or `Overleaf changed`. Send only sends the summary you saw, so a press is never kept to send after a refresh.
+
+A press on **Send** that did not send says so in the summary, until the next press or the next change of the summary:
+
+| Notice | What to do |
+| --- | --- |
+| Not sent: the summary was refreshing. | Wait until the button reads **Send** again, check the summary, then press it. |
+| Not sent: the summary changed just now. | Check the summary, then press **Send** again. |
+| Not sent: … is still running. | Wait until that operation has finished, then press **Send** again. |
+| Not sent: the panel redrew during your click. | Press **Send** again. |
+| Not sent: nothing is listed to send. | Nothing is waiting to go out. |
+
+The extra clicks of a double or triple click are ignored and get no notice.
+
 A file is refused for upload if it is not valid UTF-8, has CR (Windows) line endings, contains a NUL character or a character outside the Basic Multilingual Plane (such as an emoji), or is larger than 1 MB. The message names the file; for some character problems it also gives the line and column.
 
 ## "Checking Overleaf…" stays on
@@ -85,9 +105,13 @@ Open **Setup → Project setup → Review appearance** and choose **Use outline 
 | Sign-in browser profile | Turnleaf's storage in the editor's user data, one per server. Removed by **Sign out**. |
 | Project link, file selection, sending switch | Workspace folder settings (`.vscode/settings.json`). |
 | Starting point, queued drafts, recovery copies, sync history, review files | `.turnleaf/projects/<project-key>/` in your folder. |
+| Record of button presses and commands | `.turnleaf/projects/<project-key>/actions.jsonl`, kept under 1 MB with one older copy (`actions.1.jsonl`). |
 | Lock shared by editor windows | `.turnleaf/turnleaf.lock` |
+| Git ignore file for the whole folder | `.turnleaf/.gitignore` |
 
-The `.turnleaf/` folder contains copies of your source text and comments. Keep it private: add `.turnleaf/` to `.gitignore` if the folder is shared, and leave it out of anything you upload or send.
+The `.turnleaf/` folder contains copies of your source text and comments. Keep it private, and leave it out of anything you upload or send.
+
+If your folder is a Git repository, Git ignores all of `.turnleaf/`: Turnleaf puts a `.gitignore` file containing `*` inside it, so `git status` does not list it and `git add -A` does not commit it. Turnleaf does not run Git or change your `.gitignore` or `.git` folder to do this. Turnleaf writes the file again whenever it is missing; if you edit it, Turnleaf leaves your version as it is. Copying the folder by other means, such as a cloud drive or an archive, still copies `.turnleaf/`.
 
 ## Start over
 
@@ -106,5 +130,6 @@ Open an issue in the project's GitHub repository with:
 - The Turnleaf version (shown at the bottom of the **Sync** tab), the editor and its version, and your operating system.
 - What you did, what you expected and what happened.
 - The relevant lines from the **Turnleaf** output channel.
+- If a button press did nothing or did something unexpected: the lines of `.turnleaf/projects/<project-key>/actions.jsonl` for that press. Each line names one press or command, its outcome and its time, with the Turnleaf version, the editor window and the process; the lines of one press share its `seq` number. Copy those lines and the `activated` line above them, not the whole file.
 
-**Never** include your session cookie, the contents of `.turnleaf/`, or private document text. The output channel does not contain the cookie, but it can contain file names and messages; look through it before pasting. For security problems, see [SECURITY.md](../../SECURITY.md).
+**Never** include your session cookie, any other file from `.turnleaf/`, or private document text. The output channel and `actions.jsonl` do not contain the cookie, file contents or comment text, but they can contain file names and messages; look through them before pasting. For security problems, see [SECURITY.md](../../SECURITY.md).

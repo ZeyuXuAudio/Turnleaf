@@ -169,6 +169,31 @@ test('Send acts on the summary that is shown: one button, by case', () => {
   assert.match(page({ outgoing: out({ asOf: '14:37' }) }).html, /Compared with Overleaf as of 14:37/);
   assert.match(page({ outgoing: out({ trackChanges: true }) }).html, /Track Changes is on/);
 });
+test('Send while the summary settles reads Refreshing… with the cause; a press that did not send leaves a notice', () => {
+  const page = (extra: Partial<OutgoingView>) => { const html = projectContent(view({ outgoing: out(extra) })); return { html, nodes: elements(html) }; };
+  const status = (nodes: Element[]) => nodes.find(n => /^status status-/.test(n.attribs.class ?? ''))!.attribs.class.replace('status status-', '');
+  const refreshing = page({ sendWait: 'refreshing', updating: 'main.tex saved' }), send = command(refreshing.nodes, 'send')!;
+  assert.equal(text(send).trim(), 'Refreshing…'); assert('disabled' in send.attribs);
+  assert.equal(send.attribs.title, 'Send waits until the summary has settled, so it sends what you see');
+  assert.match(refreshing.html, /<p class="summary-line muted updating">[\s\S]*?<span>Updating: main\.tex saved<\/span>/);
+  const sending = page({ sendWait: 'sending', updating: 'main.tex saved' });
+  assert.equal(text(command(sending.nodes, 'send')).trim(), 'Sending…'); assert('disabled' in command(sending.nodes, 'send')!.attribs);
+  assert.doesNotMatch(sending.html, /Updating:/, 'The cause is shown only while the summary refreshes');
+  assert.equal(text(command(page({ sendWait: 'refreshing', incoming: { files: [file], comments: [] } }).nodes, 'send')).trim(), 'Refreshing…');
+  const notice = page({ pressNotice: 'Not sent: the summary was refreshing. Press Send again when it shows Send.' });
+  assert.match(notice.html, /<p class="summary-line attention press-notice" role="status">[\s\S]*?<span>Not sent: the summary was refreshing\. Press Send again when it shows Send\.<\/span>/);
+  assert(!('disabled' in command(notice.nodes, 'send')!.attribs), 'Send can be pressed again'); assert.equal(status(notice.nodes), 'warning');
+  assert.equal(status(page({}).nodes), 'unsent'); assert.doesNotMatch(projectContent(view({ outgoing: out() })), /press-notice|Updating:/);
+  // Send carries the summary it was drawn with, so a click on an older one does not send.
+  assert.equal(command(page({ revision: 1764254257123 }).nodes, 'send')!.attribs['data-revision'], '1764254257123');
+  assert.equal(command(page({}).nodes, 'send')!.attribs['data-revision'], undefined);
+  const undo = { record: 'h1', time: new Date(2026, 10, 13, 9, 5).toISOString(), files: [file], comments: [], stays: [] };
+  const undoing = elements(projectContent(view({ outgoing: out({ files: [] }), undo: { ...undo, sendWait: 'refreshing', updating: 'Overleaf changed', pressNotice: 'Not sent again: Send undo was already running.' } })));
+  const sendUndo = command(undoing, 'sendUndo')!;
+  assert.equal(command(elements(projectContent(view({ outgoing: out({ files: [] }), undo: { ...undo, revision: 42 } }))), 'sendUndo')!.attribs['data-revision'], '42');
+  assert.equal(text(sendUndo).trim(), 'Refreshing…'); assert('disabled' in sendUndo.attribs);
+  assert.match(projectContent(view({ outgoing: out({ files: [] }), undo: { ...undo, pressNotice: 'Not sent again: Send undo was already running.' } })), /press-notice[\s\S]*?Not sent again: Send undo was already running\./);
+});
 test('the Full/Fast switch in the Send summary: Fast only with the live connection', () => {
   const page = (check: OutgoingView['check'], extra: Partial<OutgoingView> = {}) => { const html = projectContent(view({ outgoing: out({ check, ...extra }) })), nodes = elements(html); return { html, nodes, segment: (value: string) => nodes.find(n => n.attribs['data-command'] === 'setSendCheck' && n.attribs['data-value'] === value)! }; };
   const full = page({ mode: 'full', live: true });

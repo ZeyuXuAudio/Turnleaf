@@ -20,7 +20,7 @@ The `.turnleaf/` folder is created with owner-only permissions. It contains, per
 - a log of every write sent to Overleaf;
 - the review files for AI agents and scripts.
 
-This is private source and comment text. Keep `.turnleaf/` out of shared folders, public repositories and archives you send to others; add `.turnleaf/` to `.gitignore` if the folder is a Git repository. Turnleaf does not change `.gitignore`.
+This is private source and comment text. Keep `.turnleaf/` out of shared folders, public repositories and archives you send to others; Git ignores the folder, because Turnleaf keeps a `.gitignore` file containing `*` inside `.turnleaf/`. Turnleaf does not run Git or change your own `.gitignore` or `.git` folder; other ways of copying the folder, such as cloud drives and archives, still include `.turnleaf/`.
 
 No file in your workspace contains the session cookie.
 

@@ -8,6 +8,29 @@ All notable user-facing changes to Turnleaf are listed here, newest first. The f
 
 - A command line, `turnleaf` (`npm run build:cli`, then `node dist/cli.js`), for scripts and AI agents: `sign-in`, `projects`, `link`, `pull`, `status` and `send`, which refuses file edits unless Track Changes is on (`--allow-untracked-edits` to lift it), and with `--comments-only` and `--allow-deletes` checks, JSON output and exit codes. It is not part of the extension package. See [Command line for scripts and agents](docs/guide/command-line.md).
 
+## 0.10.7
+
+### Changed
+
+- Git now ignores everything in `.turnleaf/`, including `.turnleaf/projects/<project-key>/` with its sync state, history, review files and press record. Turnleaf keeps a `.gitignore` file containing `*` inside `.turnleaf/`, so `git status` no longer lists the folder and `git add -A` does not commit it. Turnleaf still does not run Git or change your own `.gitignore` or `.git` folder. It writes the file again when it is missing and leaves an edited copy as it is.
+
+## 0.10.6
+
+### Added
+
+- A record of button presses and commands, to find out why a press did nothing: `.turnleaf/projects/<project-key>/actions.jsonl` gets a line when a button in the sidebar or the panel is pressed, when its command starts and when it ends, with the outcome (such as `sent`, `busy`, `summary-refreshing` or `too-soon-after-summary-change`). It never holds your session cookie, file contents or comment text. The file stays under 1 MB, with one older copy (`actions.1.jsonl`). A record that cannot be written never stops a command.
+- The **Turnleaf** output channel now shows the time on every line and says in one line what each press or command came to, for example `Send press (panel, 0.10.6) — not sent: summary refreshing (live event otUpdateApplied 22:37:36)`. It also lists each live event and each refresh of the Send summary with what started it.
+
+### Changed
+
+- While the Send summary refreshes, and for 0.65 s after it changes, **Send** and **Send undo** read **Refreshing…** and cannot be pressed. A muted line **Updating: …** says what changed, for example `main.tex saved`. Send only sends the summary you saw: a press is never kept to send after the refresh, and a press on a button drawn with an older summary does not send.
+- A press on **Send** or **Send undo** that did not send now says so in the summary, for example **Not sent: the summary was refreshing. Press Send again when it shows Send.** The notice stays with the summary it was pressed on until the next press or the next change of that summary; **Cancel** on an undo summary removes it. The extra clicks of a double or triple click get no notice.
+- A press on **Send** while another operation runs now names that operation in the summary (**Not sent: Get latest is still running. Press Send again when it has finished.**) instead of showing a pop-up.
+
+### Fixed
+
+- A click on a sidebar or panel button was lost when the view redrew between pressing and releasing the mouse button. The view now waits to redraw while a button is held down, for up to 1 s.
+
 ## 0.10.5
 
 ### Added

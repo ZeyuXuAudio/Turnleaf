@@ -132,6 +132,9 @@ export async function carrySelection(root: string, baseUrl: string, projectId: s
   });
 }
 
+/** Contents of `.turnleaf/.gitignore`: Git ignores the whole folder, this file included. */
+export const turnleafIgnore = '# Written by Turnleaf: keeps this folder out of Git. Turnleaf leaves an edited copy as it is.\n*\n';
+
 /** Persisted folder state. It neither reads nor writes Git metadata. */
 export class ProjectStore {
   readonly key: string;
@@ -155,7 +158,13 @@ export class ProjectStore {
   }
   async setPictures(next: PictureState): Promise<void> { await this.exclusive(async () => atomicJson(await this.picturePath('pictures.json'), next)); }
   async path(file: string): Promise<string> { return workspacePath(this.root, `.turnleaf/projects/${this.key}/${file}`); }
-  async init(): Promise<void> { await mkdir(await workspacePath(this.root, '.turnleaf'), { recursive: true, mode: 0o700 }); }
+  async init(): Promise<void> {
+    await mkdir(await workspacePath(this.root, '.turnleaf'), { recursive: true, mode: 0o700 });
+    // Keeps the folder out of Git without running Git or touching .git. A file
+    // the owner changed or replaced is left as it is.
+    try { await writeFile(await workspacePath(this.root, '.turnleaf/.gitignore'), turnleafIgnore, { flag: 'wx', mode: 0o600 }); }
+    catch (error: any) { if (error.code !== 'EEXIST') throw error; }
+  }
   async exclusive<T>(action: () => Promise<T>): Promise<T> {
     await this.init(); return withSyncLock(await workspacePath(this.root, '.turnleaf'), action);
   }
