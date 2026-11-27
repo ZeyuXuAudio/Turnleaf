@@ -24,6 +24,8 @@ This is private source and comment text. Keep `.turnleaf/` out of shared folders
 
 No file in your workspace contains the session cookie.
 
+The [command line](docs/guide/command-line.md) has no secret storage: it keeps the session in a file that only you can read, by default `~/.config/turnleaf/session-<server>` (under `XDG_CONFIG_HOME` when set), with its sign-in browser profile in the same folder, one per server and session file. It refuses a session file that is a symbolic link, that others can read, or that is inside the working folder, and replaces it in one step when Overleaf renews the cookie. Delete the file and the profile to sign out. A cookie given in `TURNLEAF_COOKIE` or a chosen session file goes only to the server named with `--base-url` (or `TURNLEAF_BASE_URL`), or to `https://www.overleaf.com` when none is named, never to a different server written in a folder's `.turnleaf/cli.json`.
+
 ## What Turnleaf contacts
 
 - **Only the configured Overleaf server** (`turnleaf.baseUrl`, by default `https://www.overleaf.com`). Every request is checked against that server's origin before the cookie is attached; requests and redirects to any other origin are refused.

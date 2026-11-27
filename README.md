@@ -67,7 +67,14 @@ Turnleaf is a VS Code and Cursor extension for authors who write LaTeX in a loca
 - It never contacts any server other than the configured Overleaf server, and it collects no telemetry.
 - It never publishes what AI agents or scripts queue in the review files until you press **Send**.
 
-The [command line](#command-line) is the exception to the first two points: a script decides when to send. It still writes nothing without `send --yes`, refuses file edits unless Track Changes is on for the account, needs `--allow-deletes` for any deletion, and keeps its session in `~/.config/turnleaf`, never in the project folder.
+The [command line](#command-line) is an exception to five of these points, because a script decides instead of a person:
+
+- Points 1, 2 and 8: there is no **Enable sending** switch and no outgoing summary to look at. `send --yes` publishes what agents and scripts queued in the review files; without `--yes` nothing is written to Overleaf.
+- Point 3: `pull` writes Overleaf's changes to the folder without a preview, and `send --yes` does the same before it sends when Overleaf changed meanwhile. It stops at a conflict unless `--take-overleaf` is given.
+- Point 5: with `--allow-deletes`, `send` deletes pictures on Overleaf that were deleted in the folder (with `--pictures`), as well as threads and messages.
+- Point 6: the session is kept in a private file, by default `~/.config/turnleaf/session-<server>`, not in the editor's secret storage, with the sign-in browser profile next to it. It is never kept in the project folder. Delete these files to sign out.
+
+It also refuses file edits unless Track Changes is on for the account, and sends a cookie only to the server it was given for.
 
 ## Install
 
@@ -135,11 +142,11 @@ git clone https://github.com/ZeyuXuAudio/Turnleaf.git && cd Turnleaf
 npm ci --ignore-scripts && npm run build:cli      # builds dist/cli.js
 node dist/cli.js help                             # lists the commands and options
 node dist/cli.js sign-in                          # or save the session cookie by hand (below)
-node dist/cli.js link <project-id> --folder paper --all-sources
-node dist/cli.js pull --folder paper              # first run downloads the files
+node dist/cli.js link <project-id> --folder ~/papers/my-paper --all-sources
+node dist/cli.js pull --folder ~/papers/my-paper  # first run downloads the files
 # ... an agent queues comments in the review files ...
-node dist/cli.js send --folder paper --dry-run    # what would be written
-node dist/cli.js send --folder paper --yes        # write it
+node dist/cli.js send --folder ~/papers/my-paper --dry-run   # what would be written
+node dist/cli.js send --folder ~/papers/my-paper --yes       # write it
 ```
 
 If `sign-in` cannot open a browser, for example because of an organization's browser policy, [save the session cookie by hand](docs/guide/command-line.md#save-the-session-by-hand). Every command can print JSON (`--json`) and returns exit codes a script can act on. See [Command line for scripts and agents](docs/guide/command-line.md).
