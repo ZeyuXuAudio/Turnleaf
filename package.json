@@ -928,6 +928,8 @@
     "test:editor": "npm run build && node scripts/smoke.mjs",
     "test:press": "npm run build && node scripts/smoke.mjs --press",
     "test:live": "npm run build && node scripts/live.mjs",
+    "pretest:roundtrip": "node scripts/fetch-reference.mjs",
+    "test:roundtrip": "npm run build && node scripts/roundtrip.mjs",
     "test:ce": "npm run build && node scripts/ce.mjs",
     "test:fixture": "node scripts/fixture.mjs",
     "test:installed": "node scripts/installed-smoke.mjs"
